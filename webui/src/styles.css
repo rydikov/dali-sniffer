@@ -91,7 +91,6 @@ body {
 .icon-button svg {
   width: 18px;
   height: 18px;
-  fill: currentColor;
 }
 
 .icon-button:hover {

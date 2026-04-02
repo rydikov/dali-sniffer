@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "cJSON.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -79,52 +81,45 @@ static const char *content_type_for_path(const char *path)
     return "application/octet-stream";
 }
 
-static bool extract_json_string(const char *json, const char *key, char *output, size_t output_size)
+static char *build_json_string_message(const char *type, const char *value)
 {
-    char pattern[32];
-    const char *start;
-    size_t i = 0;
+    char *payload = NULL;
+    cJSON *root = cJSON_CreateObject();
 
-    // Ищем в простом JSON фрагмент вида "key":"value" без полноценного парсера.
-    snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
-    start = strstr(json, pattern);
-    if (start == NULL) {
-        return false;
+    if (root == NULL) {
+        return NULL;
     }
 
-    start += strlen(pattern);
-    // Копируем значение до закрывающей кавычки, учитывая экранированные символы.
-    while (*start != '\0' && *start != '"' && i + 1 < output_size) {
-        if (*start == '\\' && start[1] != '\0') {
-            ++start;
-        }
-        output[i++] = *start++;
+    if (cJSON_AddStringToObject(root, "type", type) == NULL ||
+        cJSON_AddStringToObject(root, "value", value) == NULL) {
+        cJSON_Delete(root);
+        return NULL;
     }
-    output[i] = '\0';
 
-    return *start == '"';
+    payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return payload;
 }
 
-static void json_escape_string(const char *input, char *output, size_t output_size)
+static char *build_command_ack_json(const char *command, bool accepted)
 {
-    size_t j = 0;
+    char *payload = NULL;
+    cJSON *root = cJSON_CreateObject();
 
-    // Экранируем строку перед вставкой в JSON-ответ.
-    for (size_t i = 0; input[i] != '\0' && j + 1 < output_size; ++i) {
-        const char ch = input[i];
-
-        if ((ch == '\\' || ch == '"') && j + 2 < output_size) {
-            output[j++] = '\\';
-            output[j++] = ch;
-        } else if ((ch == '\n' || ch == '\r' || ch == '\t') && j + 2 < output_size) {
-            output[j++] = '\\';
-            output[j++] = (ch == '\n') ? 'n' : (ch == '\r' ? 'r' : 't');
-        } else if ((unsigned char)ch >= 0x20) {
-            output[j++] = ch;
-        }
+    if (root == NULL) {
+        return NULL;
     }
 
-    output[j] = '\0';
+    if (cJSON_AddStringToObject(root, "type", "command_ack") == NULL ||
+        cJSON_AddStringToObject(root, "command", command) == NULL ||
+        cJSON_AddBoolToObject(root, "accepted", accepted) == NULL) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    payload = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return payload;
 }
 
 static esp_err_t send_embedded_file(httpd_req_t *req,
@@ -151,9 +146,9 @@ static const embedded_asset_t *find_asset(const char *uri)
     return NULL;
 }
 
-static esp_err_t ws_send_json_async(httpd_handle_t server, int fd, const char *json)
+static esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
 {
-    // Для рассылки статуса используем асинхронную отправку текстового WebSocket-кадра.
+    // Для отправки из фоновой задачи используем API, которое само маршалит вызов в контекст httpd.
     httpd_ws_frame_t frame = {
         .final = true,
         .fragmented = false,
@@ -162,13 +157,13 @@ static esp_err_t ws_send_json_async(httpd_handle_t server, int fd, const char *j
         .len = strlen(json),
     };
 
-    return httpd_ws_send_frame_async(server, fd, &frame);
+    return httpd_ws_send_data(server, fd, &frame);
 }
 
 static void broadcast_message(void)
 {
     static const char *message = "Hello world";
-    char payload[96];
+    char *payload;
     int client_fds[CONFIG_LWIP_MAX_SOCKETS];
     size_t clients = CONFIG_LWIP_MAX_SOCKETS;
 
@@ -176,23 +171,30 @@ static void broadcast_message(void)
         return;
     }
 
-    snprintf(payload, sizeof(payload), "{\"type\":\"current_time\",\"value\":\"%s\"}", message);
+    payload = build_json_string_message("message", message);
+    if (payload == NULL) {
+        ESP_LOGW(TAG, "Failed to build broadcast JSON payload");
+        return;
+    }
 
     if (httpd_get_client_list(s_server, &clients, client_fds) != ESP_OK) {
+        cJSON_free(payload);
         return;
     }
 
     // Проходим только по активным WebSocket-клиентам и отправляем им сообщение.
     for (size_t i = 0; i < clients; ++i) {
         if (httpd_ws_get_fd_info(s_server, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
-            ESP_LOGI(TAG, "Sending current time to fd %d: %s", client_fds[i], message);
-            esp_err_t err = ws_send_json_async(s_server, client_fds[i], payload);
+            ESP_LOGI(TAG, "Sending message to fd %d: %s", client_fds[i], message);
+            esp_err_t err = ws_send_json(s_server, client_fds[i], payload);
 
             if (err != ESP_OK) {
-                ESP_LOGW(TAG, "Failed to send current time to fd %d: %s", client_fds[i], esp_err_to_name(err));
+                ESP_LOGW(TAG, "Failed to send message to fd %d: %s", client_fds[i], esp_err_to_name(err));
             }
         }
     }
+
+    cJSON_free(payload);
 }
 
 static void websocket_broadcast_task(void *arg)
@@ -223,8 +225,9 @@ static esp_err_t asset_get_handler(httpd_req_t *req)
         return ESP_ERR_NOT_FOUND;
     }
 
-    // Для ассетов включаем агрессивное кэширование: имена файлов фиксированы внутри сборки.
-    httpd_resp_set_hdr(req, "Cache-Control", "public, max-age=31536000, immutable");
+    // Имена ассетов фиксированные, поэтому для разработки отключаем агрессивное кэширование,
+    // чтобы браузер подхватывал свежую сборку после перепрошивки.
+    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
     return send_embedded_file(req, req->uri, asset->start, asset->end);
 }
 
@@ -239,9 +242,7 @@ static esp_err_t ws_handler(httpd_req_t *req)
     httpd_ws_frame_t frame = {
         .type = HTTPD_WS_TYPE_TEXT,
     };
-    char command[128];
-    char escaped_command[192];
-    char ack[288];
+    char *ack = NULL;
     esp_err_t err;
 
     err = httpd_ws_recv_frame(req, &frame, 0);
@@ -268,18 +269,24 @@ static esp_err_t ws_handler(httpd_req_t *req)
     ((char *)frame.payload)[frame.len] = '\0';
     ESP_LOGI(TAG, "Received WS payload: %s", (char *)frame.payload);
 
-    // Сейчас сервер подтверждает получение команды, если в JSON есть поле "command".
-    if (extract_json_string((char *)frame.payload, "command", command, sizeof(command))) {
-        json_escape_string(command, escaped_command, sizeof(escaped_command));
-        snprintf(ack,
-                 sizeof(ack),
-                 "{\"type\":\"command_ack\",\"command\":\"%s\",\"accepted\":true}",
-                 escaped_command);
-    } else {
-        snprintf(ack, sizeof(ack), "{\"type\":\"command_ack\",\"command\":\"\",\"accepted\":false}");
+    cJSON *request = cJSON_Parse((char *)frame.payload);
+    if (request != NULL) {
+        cJSON *command = cJSON_GetObjectItemCaseSensitive(request, "command");
+        const char *command_value = cJSON_IsString(command) ? command->valuestring : "";
+        const bool accepted = cJSON_IsString(command);
+
+        ack = build_command_ack_json(command_value, accepted);
+        cJSON_Delete(request);
     }
 
     free(frame.payload);
+
+    if (ack == NULL) {
+        ack = build_command_ack_json("", false);
+        if (ack == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
 
     httpd_ws_frame_t response = {
         .final = true,
@@ -289,7 +296,9 @@ static esp_err_t ws_handler(httpd_req_t *req)
         .len = strlen(ack),
     };
 
-    return httpd_ws_send_frame(req, &response);
+    err = httpd_ws_send_frame(req, &response);
+    cJSON_free(ack);
+    return err;
 }
 
 esp_err_t web_server_start(void)

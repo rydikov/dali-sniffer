@@ -1,4 +1,4 @@
-export function createSocketClient({ url, onOpen, onClose, onError, onTime, onAck, onInvalidPayload }) {
+export function createSocketClient({ url, onOpen, onClose, onError, onMessage, onAck, onInvalidPayload }) {
   let socket;
 
   function connect() {
@@ -29,8 +29,8 @@ export function createSocketClient({ url, onOpen, onClose, onError, onTime, onAc
         return;
       }
 
-      if (payload.type === 'current_time') {
-        onTime(payload);
+      if (payload.type === 'message') {
+        onMessage(payload);
       } else if (payload.type === 'command_ack') {
         onAck(payload);
       }

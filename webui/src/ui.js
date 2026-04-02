@@ -62,9 +62,9 @@ export function setConnectionState(text, isOnline) {
   sendButtonEl.disabled = !isOnline;
 }
 
-export function renderTimeMessage(payload) {
-  const value = payload.value || 'time not set';
-  addMessage('status', `Current time: ${value}`);
+export function renderMessage(payload) {
+  const value = payload.value || '';
+  addMessage('status', `Message: ${value}`);
 }
 
 export function renderAckMessage(payload) {

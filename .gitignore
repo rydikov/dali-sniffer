@@ -66,6 +66,9 @@ env/
 .ccls-cache/
 compile_commands.json
 
+# Frontend tooling
+webui/node_modules/
+
 # Windows specific
 Thumbs.db
 ehthumbs.db

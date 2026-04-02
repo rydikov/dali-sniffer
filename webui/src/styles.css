@@ -1,9 +1,6 @@
 :root {
   --bg: #201f27;
-  --panel: #24232d;
-  --panel-2: #2b2935;
   --border: #413d4f;
-  --border-soft: rgba(255, 255, 255, 0.06);
   --text: #d8d2de;
   --muted: #8a8296;
   --success: #9ec9b0;
@@ -12,7 +9,6 @@
   --error: #dc8a92;
   --accent: #7d4de2;
   --accent-strong: #8f58ff;
-  --shadow: rgba(16, 12, 24, 0.42);
   --font: "SFMono-Regular", "Menlo", "Consolas", monospace;
   --ui-font: "SF Pro Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
 }
@@ -34,7 +30,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), transparent 16%), var(--bg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 16%), var(--bg);
   overflow: hidden;
 }
 
@@ -84,7 +80,27 @@ body {
   color: #d8d5e2;
   font-size: 13px;
   font-weight: 600;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.icon-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.icon-button:hover {
+  background: #3a3849;
+}
+
+.icon-button.is-active {
+  background: #4a4760;
+  color: #f1ecff;
 }
 
 .messages {
@@ -135,10 +151,6 @@ body {
   color: var(--text);
 }
 
-.body.info {
-  color: var(--text);
-}
-
 .body.command {
   color: var(--info);
 }
@@ -169,16 +181,19 @@ form {
 }
 
 .input-wrap {
+  display: flex;
+  align-items: center;
   padding: 0 12px;
   background: #221f2a;
   border: 1px solid #4a4658;
   border-radius: 10px;
   min-height: 44px;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 input {
   width: 100%;
+  height: 100%;
   border: 0;
   outline: 0;
   background: transparent;
@@ -187,6 +202,7 @@ input {
   font-size: clamp(14px, 1.15vw, 16px);
   line-height: 1.2;
   min-width: 0;
+  padding: 10px 0;
 }
 
 input::placeholder {
@@ -205,7 +221,7 @@ button {
   font-weight: 600;
   background: linear-gradient(180deg, var(--accent-strong), var(--accent));
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
     0 10px 24px rgba(93, 49, 178, 0.25);
 }
 

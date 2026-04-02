@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Wi-Fi Console</title>
+</head>
+<body>
+  <section class="shell">
+    <header class="topbar">
+      <div class="status">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="ws-state">Offline</span>
+      </div>
+      <div class="actions">
+        <button class="icon-button" id="pause-button" type="button" aria-label="Pause updates" title="Pause updates">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="6" y="5" width="4" height="14" rx="1.5"></rect>
+            <rect x="14" y="5" width="4" height="14" rx="1.5"></rect>
+          </svg>
+        </button>
+        <button class="icon-button" id="clear-button" type="button" aria-label="Clear chat" title="Clear chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14.62 4.44a1 1 0 0 1 1.41 0l3.53 3.53a1 1 0 0 1 0 1.41l-1.06 1.06-4.94-4.94 1.06-1.06ZM12.5 6.56l4.94 4.94-2.12 2.12a2 2 0 0 1-1.03.55l-3.46.77a.75.75 0 0 1-.9-.89l.77-3.47a2 2 0 0 1 .54-1.03l1.26-1.26ZM4 18a1 1 0 0 1 1-1h8a1 1 0 1 1 0 2H5a1 1 0 0 1-1-1Z"></path>
+          </svg>
+        </button>
+      </div>
+    </header>
+    <main class="messages" id="messages"></main>
+    <footer class="composer">
+      <form id="command-form">
+        <label class="input-wrap">
+          <input id="command-input" type="text" maxlength="120" placeholder="/ping" autocomplete="off">
+        </label>
+        <button id="send-button" type="submit">Send</button>
+      </form>
+    </footer>
+  </section>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

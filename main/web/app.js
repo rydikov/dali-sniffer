@@ -1,8 +1,9 @@
 const messagesEl = document.getElementById('messages');
 const formEl = document.getElementById('command-form');
 const inputEl = document.getElementById('command-input');
-const sendButtonEl = document.getElementById('send-button');
 const stateEl = document.getElementById('ws-state');
+const statusDotEl = document.getElementById('status-dot');
+const sendButtonEl = document.getElementById('send-button');
 const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
 let socket;
 
@@ -22,26 +23,48 @@ function scrollToBottom() {
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
-function addMessage(kind, author, body, avatar, bubbleClass) {
+function classifyMessage(kind, body) {
+  if (kind === 'self') {
+    return 'command';
+  }
+
+  if (kind === 'command') {
+    return body.includes('rejected') ? 'error' : 'success';
+  }
+
+  if (body.includes('Disconnected') || body.includes('lost')) {
+    return 'warning';
+  }
+
+  if (body.includes('invalid') || body.includes('error')) {
+    return 'error';
+  }
+
+  if (body.includes('Connected') || body.includes('Waiting') || body.includes('Open the page')) {
+    return 'success';
+  }
+
+  return 'info';
+}
+
+function addMessage(kind, body) {
+  const tone = classifyMessage(kind, body);
   const row = document.createElement('article');
   row.className = 'msg ' + kind;
   row.innerHTML =
-    '<div class="avatar">' + avatar + '</div>' +
-    '<div class="bubble ' + (bubbleClass || '') + '">' +
-      '<div class="meta">' +
-        '<span class="name">' + escapeHtml(author) + '</span>' +
-        '<span class="time">' + stamp() + '</span>' +
-      '</div>' +
-      '<div class="body">' + escapeHtml(body) + '</div>' +
-    '</div>';
+    '<span class="time">[' + stamp() + ']</span>' +
+    '<span class="body ' + tone + '">' + escapeHtml(body) + '</span>';
   messagesEl.appendChild(row);
   scrollToBottom();
 }
 
 function setState(text, online) {
   stateEl.textContent = text;
-  stateEl.style.background = online ? 'rgba(94, 234, 212, 0.12)' : 'rgba(248, 113, 113, 0.12)';
-  stateEl.style.color = online ? '#5eead4' : '#fda4af';
+  stateEl.style.color = online ? '#9ec9b0' : '#d8d2de';
+  statusDotEl.style.background = online ? '#9ec9b0' : '#8a8296';
+  statusDotEl.style.boxShadow = online
+    ? '0 0 0 4px rgba(158, 201, 176, 0.15)'
+    : '0 0 0 4px rgba(138, 130, 150, 0.14)';
   sendButtonEl.disabled = !online;
 }
 
@@ -49,12 +72,12 @@ function renderStatus(message) {
   const state = message.connected ? 'Connected' : 'Disconnected';
   const ssid = message.ssid || 'unknown';
   const ip = message.ip || 'not assigned';
-  addMessage('status', 'Wi-Fi Status', state + ' | SSID: ' + ssid + ' | IP: ' + ip, '📡');
+  addMessage('status', state + ' | SSID: ' + ssid + ' | IP: ' + ip);
 }
 
 function renderAck(message) {
   const accepted = message.accepted ? 'accepted' : 'rejected';
-  addMessage('command', 'Controller', 'Command "' + (message.command || '') + '" ' + accepted, '🤖');
+  addMessage('command', 'Command "' + (message.command || '') + '" ' + accepted);
 }
 
 function connect() {
@@ -62,18 +85,18 @@ function connect() {
   setState('connecting', false);
 
   socket.addEventListener('open', () => {
-    setState('online', true);
-    addMessage('status', 'System', 'WebSocket connected. Waiting for Wi-Fi updates...', '✨');
+    setState('Connected', true);
+    addMessage('status', 'WebSocket connected. Waiting for Wi-Fi updates...');
   });
 
   socket.addEventListener('close', () => {
-    setState('offline', false);
-    addMessage('status', 'System', 'Connection lost. Retrying in 2 seconds...', '⚠️');
+    setState('Offline', false);
+    addMessage('status', 'Connection lost. Retrying in 2 seconds...');
     setTimeout(connect, 2000);
   });
 
   socket.addEventListener('error', () => {
-    setState('error', false);
+    setState('Error', false);
   });
 
   socket.addEventListener('message', (event) => {
@@ -81,7 +104,7 @@ function connect() {
     try {
       payload = JSON.parse(event.data);
     } catch (err) {
-      addMessage('status', 'System', 'Received invalid JSON payload', '⚠️');
+      addMessage('status', 'Error: received invalid JSON payload');
       return;
     }
 
@@ -100,11 +123,12 @@ formEl.addEventListener('submit', (event) => {
     return;
   }
 
-  addMessage('self', 'You', command, '🧑', 'self');
+  addMessage('self', command);
   socket.send(JSON.stringify({ type: 'command', command }));
   inputEl.value = '';
   inputEl.focus();
 });
 
-addMessage('status', 'System', 'Open the page after ESP32 gets an IP address.', '💬');
+addMessage('status', 'Server started successfully');
+addMessage('status', 'Open the page after ESP32 gets an IP address.');
 connect();

@@ -7,33 +7,27 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="shell">
+  <section class="shell">
     <header class="topbar">
-      <div class="chrome">
-        <div class="dots"><span></span><span></span><span></span></div>
-        <div class="pill"></div>
-        <div class="badge" id="ws-state">offline</div>
+      <div class="status">
+        <span class="status-dot" id="status-dot"></span>
+        <span class="status-text" id="ws-state">Offline</span>
       </div>
-      <div class="title">
-        <strong>Wi-Fi Console</strong>
-        <span>ESP32 shared status stream</span>
+      <div class="actions" aria-hidden="true">
+        <button class="icon-button" type="button" tabindex="-1">||</button>
+        <button class="icon-button" type="button" tabindex="-1">⌫</button>
       </div>
     </header>
     <main class="messages" id="messages"></main>
     <footer class="composer">
       <form id="command-form">
         <label class="input-wrap">
-          <span>✦</span>
-          <input id="command-input" type="text" maxlength="120" placeholder="Send a command" autocomplete="off">
+          <input id="command-input" type="text" maxlength="120" placeholder="/ping" autocomplete="off">
         </label>
         <button id="send-button" type="submit">Send</button>
       </form>
-      <div class="footer-note">
-        <span>WebSocket: <code>/ws</code></span>
-        <span>Updates every 5s</span>
-      </div>
     </footer>
-  </div>
+  </section>
   <script src="/app.js"></script>
 </body>
 </html>

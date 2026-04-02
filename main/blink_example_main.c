@@ -1,4 +1,4 @@
-/* Wi-Fi Station Example
+/* Wi-Fi WebSocket Chat Example
 
    This example code is in the Public Domain (or CC0 licensed, at your option.)
 
@@ -14,6 +14,9 @@
 #include "esp_wifi.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+
+#include "web_server.h"
+#include "wifi_state.h"
 
 static const char *TAG = "example";
 
@@ -31,6 +34,7 @@ static void wifi_event_handler(void *arg,
         } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
             wifi_event_sta_disconnected_t *disconnected = event_data;
 
+            wifi_state_update(false, "");
             ESP_LOGW(TAG,
                      "Disconnected from AP \"%s\", reason=%d. Retrying...",
                      CONFIG_WIFI_SSID,
@@ -39,8 +43,11 @@ static void wifi_event_handler(void *arg,
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = event_data;
+        char ip_address[16];
 
-        ESP_LOGI(TAG, "Got IP address: " IPSTR, IP2STR(&event->ip_info.ip));
+        esp_ip4addr_ntoa(&event->ip_info.ip, ip_address, sizeof(ip_address));
+        wifi_state_update(true, ip_address);
+        ESP_LOGI(TAG, "Got IP address: %s", ip_address);
     }
 }
 
@@ -67,6 +74,8 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    ESP_ERROR_CHECK(wifi_state_init(CONFIG_WIFI_SSID));
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     esp_netif_create_default_wifi_sta();
@@ -86,4 +95,5 @@ void app_main(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(web_server_start());
 }

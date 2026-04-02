@@ -62,12 +62,9 @@ export function setConnectionState(text, isOnline) {
   sendButtonEl.disabled = !isOnline;
 }
 
-export function renderStatusMessage(payload) {
-  const state = payload.connected ? 'Connected' : 'Disconnected';
-  const ssid = payload.ssid || 'unknown';
-  const ip = payload.ip || 'not assigned';
-
-  addMessage('status', `${state} | SSID: ${ssid} | IP: ${ip}`);
+export function renderTimeMessage(payload) {
+  const value = payload.value || 'time not set';
+  addMessage('status', `Current time: ${value}`);
 }
 
 export function renderAckMessage(payload) {

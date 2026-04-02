@@ -8,7 +8,7 @@ import {
   registerToolbarHandlers,
   registerCommandHandler,
   renderAckMessage,
-  renderStatusMessage,
+  renderTimeMessage,
   setPauseState,
   setConnectionState
 } from './ui.js';
@@ -42,7 +42,7 @@ const client = createSocketClient({
     }
 
     setConnectionState('Connected', true);
-    pushMessage('status', 'WebSocket connected. Waiting for Wi-Fi updates...');
+    pushMessage('status', 'WebSocket connected. Waiting for time updates...');
   },
   onClose() {
     setConnectionState('Offline', false);
@@ -51,9 +51,9 @@ const client = createSocketClient({
   onError() {
     setConnectionState('Error', false);
   },
-  onStatus(payload) {
+  onTime(payload) {
     if (!isPaused) {
-      renderStatusMessage(payload);
+      renderTimeMessage(payload);
     }
   },
   onAck(payload) {

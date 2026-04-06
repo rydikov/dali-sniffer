@@ -1,33 +1,22 @@
-| Supported Targets | ESP32 |
-| ----------------- | ----- |
+# Dali sniffer
 
-# Wi-Fi WebSocket Chat Example
+После старта прошивка поднимает sniffer DALI-шины и отправляет события на шине в WebSocket UI.
 
-Этот проект демонстрирует приложение для `ESP32`, которое подключается к Wi‑Fi, поднимает встроенный HTTP/WebSocket сервер и отдаёт собранный фронтенд через встроенную production-статику.
+## Credits
+
+Часть low-level логики приёма/передачи DALI и Manchester-подхода в этом проекте опирается на идеи и структуру из:
+
+* [qqqlab/DALI-Lighting-Interface](https://github.com/qqqlab/DALI-Lighting-Interface/)
 
 ## Поддерживаемая платформа
 
-Поддерживается только `ESP32`.
+Тестировал на `ESP32-S3` но должно работать и на `ESP32-C6`.
 
 Перед сборкой укажите целевой чип:
 
 ```bash
-idf.py set-target esp32
+idf.py set-target esp32-s3
 ```
-
-## Что делает прошивка
-
-После запуска приложение:
-
-* инициализирует `NVS`, сетевой стек и драйвер Wi‑Fi;
-* подключается к точке доступа с параметрами из `menuconfig`;
-* поднимает HTTP-сервер и страницу по адресу `/`;
-* раздаёт собранные production assets по пути `/assets/...`;
-* открывает WebSocket endpoint по пути `/ws`;
-* рассылает JSON-статус Wi‑Fi всем подключённым браузерам каждые 5 секунд;
-* принимает команды из нижнего поля ввода на странице и отправляет JSON-подтверждение обратно в UI.
-
-Основная логика находится в файле [main/blink_example_main.c](/Users/rydikov/Projects/HOME/TEST/hello_world/blink/main/blink_example_main.c).
 
 ## Настройка проекта
 
@@ -37,11 +26,15 @@ idf.py set-target esp32
 idf.py menuconfig
 ```
 
-В разделе `Example Configuration` доступен параметр:
+В разделе `WiFi Configuration` доступны параметры:
 
 * `Wi-Fi SSID` - имя беспроводной сети;
 * `Wi-Fi password` - пароль беспроводной сети;
-* `Log period in ms` - унаследованный параметр от предыдущего примера, в текущей Wi‑Fi логике не используется.
+* `DALI RX GPIO Pin` - GPIO для чтения состояния DALI-шины;
+* `DALI TX GPIO Pin` - GPIO для удержания DALI-трансивера в released-состоянии.
+
+ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
+ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
 
 Пример локальной настройки:
 
@@ -49,6 +42,8 @@ idf.py menuconfig
 Example Configuration  --->
     Wi-Fi SSID = MyNetwork
     Wi-Fi password = MyPassword
+    DALI RX GPIO Pin = 14
+    DALI TX GPIO Pin = 17
 ```
 
 Значения сохраняются в `sdkconfig`, поэтому рабочие параметры подключения могут храниться прямо в конфиге проекта.
@@ -98,76 +93,109 @@ idf.py -p PORT flash monitor
 
 Чтобы выйти из монитора, нажмите `Ctrl-]`.
 
-## Веб-интерфейс
+## WebSocket события
 
-После получения IP-адреса откройте в браузере:
-
-```text
-http://DEVICE_IP/
-```
-
-Страница откроет WebSocket-соединение по пути:
-
-```text
-ws://DEVICE_IP/ws
-```
-
-CSS и JavaScript production-сборки раздаются по путям:
-
-```text
-http://DEVICE_IP/assets/app.css
-http://DEVICE_IP/assets/app.js
-```
-
-Минимальный формат статус-сообщения от устройства:
+UI продолжает получать сообщения в формате:
 
 ```json
 {
-  "type": "wifi_status",
-  "connected": true,
-  "ssid": "MyNetwork",
-  "ip": "192.168.1.42"
+  "type": "message",
+  "value": "DALI forward frame (16 bit): 0xA1B2"
 }
 ```
 
-Формат команды из UI:
+В UI публикуются кадры DALI-шины:
 
-```json
-{
-  "type": "command",
-  "command": "reboot"
-}
-```
+* `DALI forward frame (16 bit): 0x....`
+* `DALI forward frame (24 bit): 0x......`
+* `DALI backward frame (8 bit): 0x..`
 
-Формат подтверждения от ESP32:
+## Управление из чата
 
-```json
-{
-  "type": "command_ack",
-  "command": "reboot",
-  "accepted": true
-}
-```
-
-## Пример лога
+В поле ввода UI можно отправлять команды в формате:
 
 ```text
-I (xxx) example: Initializing Wi-Fi station
-I (xxx) example: HTTP server started
-I (xxx) example: Wi-Fi started, connecting to AP "MyNetwork"
-I (xxx) example: Connected to AP "MyNetwork"
-I (xxx) example: Got IP address: 192.168.1.42
-I (xxx) example: WebSocket client connected, fd=54
+<TARGET> -> <ACTION>
 ```
 
-## Устранение неполадок
+Поддерживаемые цели:
 
-* Если в логе нет сообщений, проверьте, что проект собран с целью `esp32`.
-* Если устройство не подключается, проверьте `Wi-Fi SSID` и `Wi-Fi password` в `menuconfig`.
-* Если страница не открывается, убедитесь, что используете IP устройства из лога и что клиент находится в той же сети.
-* Если страница открыта через `Vite` dev server, убедитесь, что указан параметр `?ws=DEVICE_IP:80`.
-* Если команды не доходят, проверьте, что браузер подключён к `/ws` и WebSocket находится в состоянии `online`.
-* Если в логе видны постоянные ретраи, убедитесь, что точка доступа доступна и использует совместимый режим безопасности.
-* Если монитор не подключается, проверьте значение `PORT` и USB-подключение платы.
+* `lamp <n>` - короткий адрес устройства `0..63`;
+* `group <n>` - группа `0..15`;
+* `all` - broadcast-команда;
+* `broadcast` - то же, что `all`.
 
-Для общей информации по настройке ESP-IDF см. [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).
+Для DT8-команд `ct` и `rgb` в первой версии поддерживаются только:
+
+* `lamp <n>`
+* `group <n>`
+
+Поддерживаемые действия:
+
+* `off`
+* `on`
+* `max`
+* `min`
+* `up`
+* `down`
+* `step up`
+* `step down`
+* `step up on`
+* `step down off`
+* `scene <0..15>`
+* `<percent>%`
+* `query status`
+* `query present`
+* `query failure`
+* `query lamp on`
+* `query level`
+* `query max`
+* `query min`
+* `query power on`
+* `query version`
+* `query device type`
+* `query groups`
+* `query scene <0..15>`
+* `add to group <0..15>`
+* `remove from group <0..15>`
+* `remove scene <0..15>`
+* `ct <kelvin>K` - только для DT8-совместимых control gear
+* `rgb <r> <g> <b>` - только для DT8-совместимых control gear
+
+Примеры:
+
+```text
+lamp 1 -> off
+lamp 1 -> on
+lamp 1 -> 50%
+lamp 3 -> scene 4
+
+group 2 -> max
+group 2 -> step down
+group 2 -> query groups
+
+all -> off
+broadcast -> query status
+
+lamp 5 -> query level
+lamp 5 -> query device type
+lamp 5 -> add to group 3
+lamp 5 -> remove from group 3
+lamp 5 -> remove scene 2
+
+lamp 1 -> ct 4000K
+group 2 -> ct 2700K
+lamp 5 -> rgb 255 120 0
+group 3 -> rgb 0 0 255
+```
+
+После успешной отправки UI покажет подтверждение вида:
+
+```text
+Message: Sent: lamp 1 -> off
+Command "lamp 1 -> off" accepted
+```
+
+Если строка не распознана или кадр не удалось отправить на шину, в чате появится сообщение об ошибке, а `command_ack` придёт с `accepted: false`.
+
+Для `ct` значение вводится в Kelvin, а внутри прошивки конвертируется в DALI DT8 `mired`. Перед отправкой DT8-команд прошивка не делает предварительный `query features`, поэтому несовместимые устройства просто не отреагируют или вернут обычное поведение шины.

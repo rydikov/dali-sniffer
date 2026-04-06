@@ -2,6 +2,12 @@
 
 После старта прошивка поднимает sniffer DALI-шины и отправляет события на шине в WebSocket UI.
 
+## Credits
+
+Часть low-level логики приёма/передачи DALI и Manchester-подхода в этом проекте опирается на идеи и структуру из:
+
+* [qqqlab/DALI-Lighting-Interface](https://github.com/qqqlab/DALI-Lighting-Interface/)
+
 ## Поддерживаемая платформа
 
 Тестировал на `ESP32-S3` но должно работать и на `ESP32-C6`.

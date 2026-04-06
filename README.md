@@ -56,8 +56,8 @@ idf.py menuconfig
 
 Подсказка по пинам для совместимых плат:
 
-ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
-ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
+* ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
+* ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
 
 Пример локальной настройки:
 

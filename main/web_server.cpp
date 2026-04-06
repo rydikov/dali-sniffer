@@ -4,11 +4,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <inttypes.h>
 
 extern "C" {
 #include "cJSON.h"
 }
 
+#include "dali_sniffer.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -17,7 +19,6 @@ extern "C" {
 namespace {
 
 constexpr const char *kTag = "web_server";
-constexpr TickType_t kStatusBroadcastPeriod = pdMS_TO_TICKS(5000);
 
 // Веб-ресурсы подключаются в прошивку на этапе линковки как бинарные массивы.
 extern const char web_index_html_start[] asm("_binary_index_html_start");
@@ -166,9 +167,38 @@ esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
     return httpd_ws_send_data(server, fd, &frame);
 }
 
-void broadcast_message(void)
+void build_dali_message_text(const dali_frame_event_t &frame, char *buffer, size_t buffer_size)
 {
-    static constexpr const char *kMessage = "Hello world";
+    const char *direction = frame.is_backward_frame ? "backward" : "forward";
+    int width = 0;
+
+    switch (frame.length) {
+    case 8:
+        width = 2;
+        break;
+    case 16:
+        width = 4;
+        break;
+    case 24:
+        width = 6;
+        break;
+    default:
+        width = 8;
+        break;
+    }
+
+    std::snprintf(buffer,
+                  buffer_size,
+                  "DALI %s frame (%u bit): 0x%0*" PRIX32,
+                  direction,
+                  frame.length,
+                  width,
+                  frame.data);
+}
+
+void broadcast_message(const dali_frame_event_t &frame)
+{
+    char message[96];
     char *payload;
     int client_fds[CONFIG_LWIP_MAX_SOCKETS];
     size_t clients = CONFIG_LWIP_MAX_SOCKETS;
@@ -177,7 +207,8 @@ void broadcast_message(void)
         return;
     }
 
-    payload = build_json_string_message("message", kMessage);
+    build_dali_message_text(frame, message, sizeof(message));
+    payload = build_json_string_message("message", message);
     if (payload == nullptr) {
         ESP_LOGW(kTag, "Failed to build broadcast JSON payload");
         return;
@@ -191,7 +222,7 @@ void broadcast_message(void)
     // Проходим только по активным WebSocket-клиентам и отправляем им сообщение.
     for (size_t i = 0; i < clients; ++i) {
         if (httpd_ws_get_fd_info(s_server, client_fds[i]) == HTTPD_WS_CLIENT_WEBSOCKET) {
-            ESP_LOGI(kTag, "Sending message to fd %d: %s", client_fds[i], kMessage);
+            ESP_LOGI(kTag, "Sending message to fd %d: %s", client_fds[i], message);
             const esp_err_t err = ws_send_json(s_server, client_fds[i], payload);
 
             if (err != ESP_OK) {
@@ -203,14 +234,22 @@ void broadcast_message(void)
     cJSON_free(payload);
 }
 
-void websocket_broadcast_task(void *arg)
+void websocket_event_task(void *arg)
 {
     (void)arg;
+    const QueueHandle_t queue = dali_sniffer_get_event_queue();
+    dali_frame_event_t frame = {};
 
-    // Фоновая задача периодически публикует сообщение всем браузерам.
+    if (queue == nullptr) {
+        ESP_LOGW(kTag, "DALI event queue is unavailable");
+        vTaskDelete(nullptr);
+        return;
+    }
+
     while (true) {
-        broadcast_message();
-        vTaskDelay(kStatusBroadcastPeriod);
+        if (xQueueReceive(queue, &frame, portMAX_DELAY) == pdTRUE) {
+            broadcast_message(frame);
+        }
     }
 }
 
@@ -329,7 +368,7 @@ extern "C" esp_err_t web_server_start(void)
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &ws_uri));
 
     // Отдельная задача нужна, чтобы пушить обновления статуса независимо от входящих запросов.
-    task_created = xTaskCreate(websocket_broadcast_task, "ws_status", 4096, nullptr, 5, nullptr);
+    task_created = xTaskCreate(websocket_event_task, "ws_dali", 4096, nullptr, 5, nullptr);
     if (task_created != pdPASS) {
         return ESP_FAIL;
     }

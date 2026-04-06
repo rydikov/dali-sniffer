@@ -12,4 +12,18 @@ menu "WiFi Configuration"
         help
             Wi-Fi password for the station connection.
 
+    config DALI_RX_PIN
+        int "DALI RX GPIO Pin"
+        default 16
+        range 0 39
+        help
+            GPIO pin number used for receiving DALI bus samples.
+
+    config DALI_TX_PIN
+        int "DALI TX GPIO Pin"
+        default 17
+        range 0 39
+        help
+            GPIO pin number used for keeping the DALI transceiver output released.
+
 endmenu

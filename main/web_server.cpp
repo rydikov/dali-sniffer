@@ -346,10 +346,15 @@ extern "C" esp_err_t web_server_start(void)
     // Разрешаем wildcard-маршруты, чтобы один обработчик обслуживал /assets/*.
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    httpd_uri_t http_uri = {};
-    http_uri.uri = "/*";
-    http_uri.method = HTTP_GET;
-    http_uri.handler = http_get_handler;
+    httpd_uri_t index_uri = {};
+    index_uri.uri = "/";
+    index_uri.method = HTTP_GET;
+    index_uri.handler = http_get_handler;
+
+    httpd_uri_t assets_uri = {};
+    assets_uri.uri = "/assets/*";
+    assets_uri.method = HTTP_GET;
+    assets_uri.handler = http_get_handler;
 
     httpd_uri_t ws_uri = {};
     ws_uri.uri = "/ws";
@@ -364,8 +369,9 @@ extern "C" esp_err_t web_server_start(void)
     }
 
     // Регистрируем HTTP- и WebSocket-обработчики после успешного запуска сервера.
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &http_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &ws_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &index_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &assets_uri));
 
     // Отдельная задача нужна, чтобы пушить обновления статуса независимо от входящих запросов.
     task_created = xTaskCreate(websocket_event_task, "ws_dali", 4096, nullptr, 5, nullptr);

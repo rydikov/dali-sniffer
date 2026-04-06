@@ -14,7 +14,7 @@ menu "WiFi Configuration"
 
     config DALI_RX_PIN
         int "DALI RX GPIO Pin"
-        default 16
+        default 14
         range 0 39
         help
             GPIO pin number used for receiving DALI bus samples.

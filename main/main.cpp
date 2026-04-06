@@ -15,6 +15,7 @@
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
+#include "dali_sniffer.h"
 #include "web_server.h"
 
 namespace {
@@ -125,5 +126,6 @@ extern "C" void app_main(void)
     register_wifi_handlers();
     wifi_config_t wifi_config = build_wifi_config();
     start_wifi_station(wifi_config);
+    ESP_ERROR_CHECK(dali_sniffer_start());
     ESP_ERROR_CHECK(web_server_start());
 }

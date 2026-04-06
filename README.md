@@ -5,6 +5,8 @@
 
 Этот проект демонстрирует приложение для `ESP32`, которое подключается к Wi‑Fi, поднимает встроенный HTTP/WebSocket сервер и отдаёт собранный фронтенд через встроенную production-статику.
 
+После старта прошивка также поднимает sniffer DALI-шины и отправляет события на шине в WebSocket UI.
+
 ## Поддерживаемая платформа
 
 Поддерживается только `ESP32`.
@@ -23,10 +25,12 @@ idf.py set-target esp32
 idf.py menuconfig
 ```
 
-В разделе `Example Configuration` доступен параметр:
+В разделе `WiFi Configuration` доступны параметры:
 
 * `Wi-Fi SSID` - имя беспроводной сети;
-* `Wi-Fi password` - пароль беспроводной сети.
+* `Wi-Fi password` - пароль беспроводной сети;
+* `DALI RX GPIO Pin` - GPIO для чтения состояния DALI-шины;
+* `DALI TX GPIO Pin` - GPIO для удержания DALI-трансивера в released-состоянии.
 
 Пример локальной настройки:
 
@@ -34,6 +38,8 @@ idf.py menuconfig
 Example Configuration  --->
     Wi-Fi SSID = MyNetwork
     Wi-Fi password = MyPassword
+    DALI RX GPIO Pin = 16
+    DALI TX GPIO Pin = 17
 ```
 
 Значения сохраняются в `sdkconfig`, поэтому рабочие параметры подключения могут храниться прямо в конфиге проекта.
@@ -83,5 +89,24 @@ idf.py -p PORT flash monitor
 
 Чтобы выйти из монитора, нажмите `Ctrl-]`.
 
+## WebSocket события
+
+UI продолжает получать сообщения в формате:
+
+```json
+{
+  "type": "message",
+  "value": "DALI forward frame (16 bit): 0xA1B2"
+}
+```
+
+Вместо тестового `Hello world` теперь публикуются реальные кадры DALI-шины:
+
+* `DALI forward frame (16 bit): 0x....`
+* `DALI forward frame (24 bit): 0x......`
+* `DALI backward frame (8 bit): 0x..`
+
+ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
+ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
 
 Для общей информации по настройке ESP-IDF см. [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).

@@ -38,6 +38,11 @@ typedef struct {
 // Таблица статических файлов, которые отдаются напрямую из памяти устройства.
 const embedded_asset_t s_assets[] = {
     {
+        .uri = "/",
+        .start = web_index_html_start,
+        .end = web_index_html_end,
+    },
+    {
         .uri = "/assets/app.css",
         .start = web_app_css_start,
         .end = web_app_css_end,
@@ -209,14 +214,7 @@ void websocket_broadcast_task(void *arg)
     }
 }
 
-esp_err_t index_get_handler(httpd_req_t *req)
-{
-    // Главную страницу не кэшируем, чтобы браузер сразу видел обновленную прошивку/UI.
-    httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    return send_embedded_file(req, "/index.html", web_index_html_start, web_index_html_end);
-}
-
-esp_err_t asset_get_handler(httpd_req_t *req)
+esp_err_t http_get_handler(httpd_req_t *req)
 {
     const embedded_asset_t *asset = find_asset(req->uri);
 
@@ -229,7 +227,7 @@ esp_err_t asset_get_handler(httpd_req_t *req)
     // Имена ассетов фиксированные, поэтому для разработки отключаем агрессивное кэширование,
     // чтобы браузер подхватывал свежую сборку после перепрошивки.
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    return send_embedded_file(req, req->uri, asset->start, asset->end);
+    return send_embedded_file(req, asset->uri, asset->start, asset->end);
 }
 
 esp_err_t ws_handler(httpd_req_t *req)
@@ -309,15 +307,10 @@ extern "C" esp_err_t web_server_start(void)
     // Разрешаем wildcard-маршруты, чтобы один обработчик обслуживал /assets/*.
     config.uri_match_fn = httpd_uri_match_wildcard;
 
-    httpd_uri_t index_uri = {};
-    index_uri.uri = "/";
-    index_uri.method = HTTP_GET;
-    index_uri.handler = index_get_handler;
-
-    httpd_uri_t asset_uri = {};
-    asset_uri.uri = "/assets/*";
-    asset_uri.method = HTTP_GET;
-    asset_uri.handler = asset_get_handler;
+    httpd_uri_t http_uri = {};
+    http_uri.uri = "/*";
+    http_uri.method = HTTP_GET;
+    http_uri.handler = http_get_handler;
 
     httpd_uri_t ws_uri = {};
     ws_uri.uri = "/ws";
@@ -332,8 +325,7 @@ extern "C" esp_err_t web_server_start(void)
     }
 
     // Регистрируем HTTP- и WebSocket-обработчики после успешного запуска сервера.
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &index_uri));
-    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &asset_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &http_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &ws_uri));
 
     // Отдельная задача нужна, чтобы пушить обновления статуса независимо от входящих запросов.

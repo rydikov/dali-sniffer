@@ -1,4 +1,4 @@
-menu "Example Configuration"
+menu "WiFi Configuration"
 
     config WIFI_SSID
         string "Wi-Fi SSID"
@@ -11,12 +11,5 @@ menu "Example Configuration"
         default ""
         help
             Wi-Fi password for the station connection.
-
-    config LOG_PERIOD_MS
-        int "Log period in ms"
-        range 10 3600000
-        default 5000
-        help
-            Legacy log period setting from the previous heartbeat example.
 
 endmenu

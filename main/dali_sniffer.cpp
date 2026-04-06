@@ -1,5 +1,6 @@
 #include "dali_sniffer.h"
 
+#include <cstddef>
 #include <cinttypes>
 
 #include "driver/gpio.h"
@@ -107,7 +108,7 @@ public:
         }
     }
 
-    uint8_t rx(uint8_t *decoded_data)
+    uint8_t rx(uint8_t *decoded_data, size_t decoded_data_size)
     {
         switch (rxstate_) {
         case RxState::Empty:
@@ -120,7 +121,9 @@ public:
             // После завершения кадра пробуем восстановить полезные биты из
             // Manchester-представления. Возвращаем длину уже декодированного кадра.
             rxstate_ = RxState::Empty;
-            const uint8_t decoded_length = manchester_decode(rx_data_, rx_pos_ * 8, decoded_data);
+            const uint16_t encoded_bit_len = static_cast<uint16_t>(rx_pos_) * 8U;
+            const uint8_t decoded_length =
+                manchester_decode(rx_data_, encoded_bit_len, decoded_data, decoded_data_size);
             if (decoded_length < 3) {
                 // Меньше трёх бит считаем шумом/ошибкой синхронизации.
                 return 2;
@@ -198,7 +201,10 @@ private:
         return sample;
     }
 
-    static uint8_t manchester_decode(volatile uint8_t *encoded_data, uint8_t encoded_bit_len, uint8_t *decoded_data)
+    static uint8_t manchester_decode(volatile uint8_t *encoded_data,
+                                     uint16_t encoded_bit_len,
+                                     uint8_t *decoded_data,
+                                     size_t decoded_data_size)
     {
         // Декодер идёт по сырому битовому потоку и на каждом шаге пробует три
         // положения окна: текущее, на один сэмпл левее и на один правее. Так мы
@@ -237,8 +243,13 @@ private:
             if (decoded_bit_len > 0) {
                 // Первый стартовый бит не кладём в полезную нагрузку, а последующие
                 // биты упаковываем в обычный MSB-first массив байтов.
-                const uint8_t byte_pos = (decoded_bit_len - 1) >> 3;
+                const size_t byte_pos = (decoded_bit_len - 1) >> 3;
                 const uint8_t bit_pos = (decoded_bit_len - 1) & 0x7;
+                if (byte_pos >= decoded_data_size) {
+                    // На шумном сигнале декодер может увидеть слишком длинный поток.
+                    // В этом случае останавливаемся до записи за пределы буфера.
+                    return 0;
+                }
                 if (bit_pos == 0) {
                     decoded_data[byte_pos] = 0;
                 }
@@ -421,7 +432,7 @@ private:
             // Ждём сигнала от ISR о том, что очередной кадр собран целиком.
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-            const uint8_t bit_length = self->driver_.rx(decoded_data);
+            const uint8_t bit_length = self->driver_.rx(decoded_data, sizeof(decoded_data));
             if (bit_length <= 2) {
                 // Шум, неполный кадр или ошибка декодирования.
                 continue;

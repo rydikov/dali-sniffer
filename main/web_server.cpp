@@ -32,6 +32,7 @@ httpd_handle_t s_server = nullptr;
 
 typedef struct {
     const char *uri;
+    const char *content_path;
     const char *start;
     const char *end;
 } embedded_asset_t;
@@ -40,16 +41,19 @@ typedef struct {
 const embedded_asset_t s_assets[] = {
     {
         .uri = "/",
+        .content_path = "/index.html",
         .start = web_index_html_start,
         .end = web_index_html_end,
     },
     {
         .uri = "/assets/app.css",
+        .content_path = "/assets/app.css",
         .start = web_app_css_start,
         .end = web_app_css_end,
     },
     {
         .uri = "/assets/app.js",
+        .content_path = "/assets/app.js",
         .start = web_app_js_start,
         .end = web_app_js_end,
     },
@@ -266,7 +270,7 @@ esp_err_t http_get_handler(httpd_req_t *req)
     // Имена ассетов фиксированные, поэтому для разработки отключаем агрессивное кэширование,
     // чтобы браузер подхватывал свежую сборку после перепрошивки.
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-    return send_embedded_file(req, asset->uri, asset->start, asset->end);
+    return send_embedded_file(req, asset->content_path, asset->start, asset->end);
 }
 
 esp_err_t ws_handler(httpd_req_t *req)

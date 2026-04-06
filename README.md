@@ -106,5 +106,7 @@ UI продолжает получать сообщения в формате:
 * `DALI forward frame (24 bit): 0x......`
 * `DALI backward frame (8 bit): 0x..`
 
+ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
+ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
 
 Для общей информации по настройке ESP-IDF см. [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).

@@ -28,12 +28,22 @@ constexpr int kEventQueueSize = 32;
 // Буфер под "сырые" биты, считанные таймером. Этого хватает для стандартных
 // DALI-кадров 8/16/24 бит вместе со стартом, стопом и технологическим запасом.
 constexpr uint8_t kRxBufferSize = 40;
+constexpr uint8_t kTxHalfBitBufferSize = 9;
+constexpr uint8_t kBeforeCmdIdleTicks = 125;
+constexpr TickType_t kSendTimeoutTicks = pdMS_TO_TICKS(500);
 
 // Низкоуровневый драйвер занимается только времянкой: регулярно считывает состояние
 // шины, собирает битовый поток и восстанавливает полезные DALI-биты.
 class DaliSnifferDriver {
 public:
     using RxCallback = void (*)(void *);
+    enum class TxResult : uint8_t {
+        Ok = 0,
+        BusNotIdle,
+        FrameTooLong,
+        Collision,
+        Transmitting,
+    };
 
     void begin(uint8_t (*bus_is_high)(), void (*bus_set_low)(), void (*bus_set_high)())
     {
@@ -42,6 +52,7 @@ public:
         bus_set_high_ = bus_set_high;
         set_busstate_idle();
         rxstate_ = RxState::Empty;
+        tx_collision_ = 0;
     }
 
     void set_rx_callback(RxCallback callback, void *arg)
@@ -105,7 +116,95 @@ public:
                 rx_idle_ = 0;
             }
             break;
+        case BusState::Transmitting:
+            if (tx_halfbit_count_ >= tx_halfbit_len_) {
+                set_busstate_idle();
+                break;
+            }
+
+            if (tx_high_ && bus_is_high == 0 && (tx_sample_count_ == 1 || tx_sample_count_ == 2)) {
+                if (tx_collision_ != 0xFF) {
+                    tx_collision_ = tx_collision_ + 1;
+                }
+                tx_sample_count_ = 0;
+                busstate_ = BusState::CollisionTransmitting;
+                break;
+            }
+
+            if (tx_sample_count_ == 0) {
+                const uint8_t pos = tx_halfbit_count_ >> 3;
+                const uint8_t bitmask = 1 << (7 - (tx_halfbit_count_ & 0x7));
+                if ((tx_halfbit_data_[pos] & bitmask) != 0) {
+                    bus_set_low_();
+                    tx_high_ = 0;
+                } else {
+                    bus_set_high_();
+                    tx_high_ = 1;
+                }
+                tx_halfbit_count_ = tx_halfbit_count_ + 1;
+                tx_sample_count_ = 4;
+            }
+            tx_sample_count_ = tx_sample_count_ - 1;
+            break;
+        case BusState::CollisionTransmitting:
+            bus_set_low_();
+            tx_sample_count_ = tx_sample_count_ + 1;
+            if (tx_sample_count_ >= 16) {
+                set_busstate_idle();
+            }
+            break;
         }
+    }
+
+    TxResult tx(const uint8_t *data, uint8_t bit_len)
+    {
+        if (bit_len > 32) {
+            return TxResult::FrameTooLong;
+        }
+
+        if (busstate_ != BusState::Idle) {
+            return TxResult::BusNotIdle;
+        }
+
+        for (uint8_t i = 0; i < kTxHalfBitBufferSize; ++i) {
+            tx_halfbit_data_[i] = 0;
+        }
+
+        tx_halfbit_len_ = 0;
+        tx_push_two_halfbits(0x2);
+        for (uint8_t i = 0; i < bit_len; ++i) {
+            const uint8_t pos = i >> 3;
+            const uint8_t mask = 1 << (7 - (i & 0x7));
+            tx_push_two_halfbits((data[pos] & mask) != 0 ? 0x2 : 0x1);
+        }
+        tx_push_two_halfbits(0x0);
+        tx_push_two_halfbits(0x0);
+
+        tx_halfbit_count_ = 0;
+        tx_sample_count_ = 0;
+        tx_collision_ = 0;
+        rxstate_ = RxState::Empty;
+        busstate_ = BusState::Transmitting;
+        return TxResult::Ok;
+    }
+
+    TxResult tx_state()
+    {
+        if (tx_collision_ != 0) {
+            tx_collision_ = 0;
+            return TxResult::Collision;
+        }
+
+        if (busstate_ == BusState::Transmitting || busstate_ == BusState::CollisionTransmitting) {
+            return TxResult::Transmitting;
+        }
+
+        return TxResult::Ok;
+    }
+
+    uint8_t idle_count() const
+    {
+        return idle_count_;
     }
 
     uint8_t rx(uint8_t *decoded_data, size_t decoded_data_size)
@@ -139,6 +238,8 @@ private:
     enum class BusState : uint8_t {
         Idle = 0,
         Receiving = 1,
+        Transmitting = 2,
+        CollisionTransmitting = 3,
     };
 
     enum class RxState : uint8_t {
@@ -154,6 +255,14 @@ private:
         bus_set_high_();
         idle_count_ = 0;
         busstate_ = BusState::Idle;
+    }
+
+    void tx_push_two_halfbits(uint8_t halfbits)
+    {
+        const uint8_t pos = tx_halfbit_len_ >> 3;
+        const uint8_t shift = 6 - (tx_halfbit_len_ & 0x7);
+        tx_halfbit_data_[pos] |= static_cast<uint8_t>(halfbits << shift);
+        tx_halfbit_len_ = tx_halfbit_len_ + 2;
     }
 
     static uint8_t manchester_weight(uint8_t sample)
@@ -277,6 +386,12 @@ private:
     volatile uint8_t rx_byte_{0};
     volatile uint8_t rx_bit_count_{0};
     volatile uint8_t rx_idle_{0};
+    volatile uint8_t tx_halfbit_data_[kTxHalfBitBufferSize]{};
+    volatile uint8_t tx_halfbit_len_{0};
+    volatile uint8_t tx_halfbit_count_{0};
+    volatile uint8_t tx_sample_count_{0};
+    volatile uint8_t tx_high_{1};
+    volatile uint8_t tx_collision_{0};
 
     uint8_t (*bus_is_high_)() = nullptr;
     void (*bus_set_low_)() = nullptr;
@@ -380,6 +495,52 @@ public:
     QueueHandle_t event_queue() const
     {
         return event_queue_;
+    }
+
+    esp_err_t send_frame(uint8_t address_byte, uint8_t data_byte)
+    {
+        uint8_t frame[2] = {address_byte, data_byte};
+        const TickType_t start_ticks = xTaskGetTickCount();
+
+        while ((xTaskGetTickCount() - start_ticks) < kSendTimeoutTicks) {
+            if (driver_.idle_count() < kBeforeCmdIdleTicks) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
+            }
+
+            const DaliSnifferDriver::TxResult start_result = driver_.tx(frame, 16);
+            if (start_result == DaliSnifferDriver::TxResult::BusNotIdle ||
+                start_result == DaliSnifferDriver::TxResult::Transmitting) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
+            }
+
+            if (start_result != DaliSnifferDriver::TxResult::Ok) {
+                ESP_LOGW(kTag, "Failed to start DALI TX: %u", static_cast<unsigned>(start_result));
+                return ESP_FAIL;
+            }
+
+            while ((xTaskGetTickCount() - start_ticks) < kSendTimeoutTicks) {
+                const DaliSnifferDriver::TxResult tx_result = driver_.tx_state();
+                if (tx_result == DaliSnifferDriver::TxResult::Transmitting) {
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                    continue;
+                }
+
+                if (tx_result == DaliSnifferDriver::TxResult::Collision) {
+                    ESP_LOGW(kTag,
+                             "DALI TX collision on frame 0x%02X 0x%02X",
+                             address_byte,
+                             data_byte);
+                    break;
+                }
+
+                ESP_LOGI(kTag, "Sent DALI frame: 0x%02X 0x%02X", address_byte, data_byte);
+                return ESP_OK;
+            }
+        }
+
+        return ESP_ERR_TIMEOUT;
     }
 
 private:
@@ -494,4 +655,9 @@ esp_err_t dali_sniffer_start(void)
 QueueHandle_t dali_sniffer_get_event_queue(void)
 {
     return service().event_queue();
+}
+
+esp_err_t dali_sniffer_send_frame(uint8_t address_byte, uint8_t data_byte)
+{
+    return service().send_frame(address_byte, data_byte);
 }

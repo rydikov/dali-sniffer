@@ -1,5 +1,6 @@
 #include "web_server.h"
 
+#include <cctype>
 #include <cstddef>
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +37,27 @@ typedef struct {
     const char *start;
     const char *end;
 } embedded_asset_t;
+
+enum class DaliTargetKind : uint8_t {
+    Lamp,
+    Group,
+    Broadcast,
+};
+
+struct dali_target_t {
+    DaliTargetKind kind;
+    uint8_t index;
+};
+
+struct dali_tx_frame_t {
+    uint8_t address_byte;
+    uint8_t data_byte;
+};
+
+struct dali_tx_plan_t {
+    uint8_t frame_count;
+    dali_tx_frame_t frames[2];
+};
 
 // Таблица статических файлов, которые отдаются напрямую из памяти устройства.
 const embedded_asset_t s_assets[] = {
@@ -464,6 +486,267 @@ void format_dali_target(uint8_t address_byte, const char **target_type, uint8_t 
     *target_index = 0;
 }
 
+char *trim_ascii(char *text)
+{
+    while (*text != '\0' && std::isspace(static_cast<unsigned char>(*text)) != 0) {
+        ++text;
+    }
+
+    size_t length = std::strlen(text);
+    while (length > 0 && std::isspace(static_cast<unsigned char>(text[length - 1])) != 0) {
+        text[length - 1] = '\0';
+        --length;
+    }
+
+    return text;
+}
+
+void lowercase_ascii(char *text)
+{
+    while (*text != '\0') {
+        *text = static_cast<char>(std::tolower(static_cast<unsigned char>(*text)));
+        ++text;
+    }
+}
+
+bool parse_uint8_range(const char *text, uint8_t min_value, uint8_t max_value, uint8_t *value)
+{
+    char *end = nullptr;
+    const long parsed = std::strtol(text, &end, 10);
+
+    if (text == end || *trim_ascii(end) != '\0' || parsed < min_value || parsed > max_value) {
+        return false;
+    }
+
+    *value = static_cast<uint8_t>(parsed);
+    return true;
+}
+
+bool parse_prefixed_index(const char *text, const char *prefix, uint8_t max_value, uint8_t *value)
+{
+    const size_t prefix_length = std::strlen(prefix);
+    if (std::strncmp(text, prefix, prefix_length) != 0) {
+        return false;
+    }
+
+    return parse_uint8_range(trim_ascii(const_cast<char *>(text + prefix_length)), 0, max_value, value);
+}
+
+uint8_t dali_address_byte(const dali_target_t &target, bool is_command)
+{
+    switch (target.kind) {
+    case DaliTargetKind::Lamp:
+        return static_cast<uint8_t>((target.index << 1) | (is_command ? 1 : 0));
+    case DaliTargetKind::Group:
+        return static_cast<uint8_t>(0x80 | (target.index << 1) | (is_command ? 1 : 0));
+    case DaliTargetKind::Broadcast:
+        return is_command ? 0xFF : 0xFE;
+    }
+
+    return 0xFF;
+}
+
+uint8_t dali_percent_to_level(uint8_t percent)
+{
+    if (percent == 0) {
+        return 0;
+    }
+
+    if (percent >= 100) {
+        return 254;
+    }
+
+    return static_cast<uint8_t>((percent * 254 + 50) / 100);
+}
+
+void set_single_frame_plan(dali_tx_plan_t *plan, const dali_target_t &target, bool is_command, uint8_t data_byte)
+{
+    plan->frame_count = 1;
+    plan->frames[0].address_byte = dali_address_byte(target, is_command);
+    plan->frames[0].data_byte = data_byte;
+}
+
+bool parse_dali_target(char *text, dali_target_t *target)
+{
+    if (std::strcmp(text, "all") == 0 || std::strcmp(text, "broadcast") == 0) {
+        target->kind = DaliTargetKind::Broadcast;
+        target->index = 0;
+        return true;
+    }
+
+    uint8_t value = 0;
+    if (parse_prefixed_index(text, "lamp ", 63, &value)) {
+        target->kind = DaliTargetKind::Lamp;
+        target->index = value;
+        return true;
+    }
+
+    if (parse_prefixed_index(text, "group ", 15, &value)) {
+        target->kind = DaliTargetKind::Group;
+        target->index = value;
+        return true;
+    }
+
+    return false;
+}
+
+bool parse_dali_action(char *text, const dali_target_t &target, dali_tx_plan_t *plan)
+{
+    uint8_t value = 0;
+    const size_t length = std::strlen(text);
+
+    if (length > 1 && text[length - 1] == '%') {
+        text[length - 1] = '\0';
+        if (parse_uint8_range(trim_ascii(text), 0, 100, &value)) {
+            set_single_frame_plan(plan, target, false, dali_percent_to_level(value));
+            return true;
+        }
+        return false;
+    }
+
+    if (std::strcmp(text, "off") == 0) {
+        set_single_frame_plan(plan, target, true, 0x00);
+        return true;
+    }
+    if (std::strcmp(text, "on") == 0) {
+        set_single_frame_plan(plan, target, false, 254);
+        return true;
+    }
+    if (std::strcmp(text, "max") == 0) {
+        set_single_frame_plan(plan, target, true, 0x05);
+        return true;
+    }
+    if (std::strcmp(text, "min") == 0) {
+        set_single_frame_plan(plan, target, true, 0x06);
+        return true;
+    }
+    if (std::strcmp(text, "up") == 0) {
+        set_single_frame_plan(plan, target, true, 0x01);
+        return true;
+    }
+    if (std::strcmp(text, "down") == 0) {
+        set_single_frame_plan(plan, target, true, 0x02);
+        return true;
+    }
+    if (std::strcmp(text, "step up") == 0) {
+        set_single_frame_plan(plan, target, true, 0x03);
+        return true;
+    }
+    if (std::strcmp(text, "step down") == 0) {
+        set_single_frame_plan(plan, target, true, 0x04);
+        return true;
+    }
+    if (std::strcmp(text, "step up on") == 0) {
+        set_single_frame_plan(plan, target, true, 0x08);
+        return true;
+    }
+    if (std::strcmp(text, "step down off") == 0) {
+        set_single_frame_plan(plan, target, true, 0x07);
+        return true;
+    }
+    if (parse_prefixed_index(text, "scene ", 15, &value)) {
+        set_single_frame_plan(plan, target, true, static_cast<uint8_t>(0x10 + value));
+        return true;
+    }
+
+    if (std::strcmp(text, "query status") == 0) {
+        set_single_frame_plan(plan, target, true, 0x90);
+        return true;
+    }
+    if (std::strcmp(text, "query present") == 0) {
+        set_single_frame_plan(plan, target, true, 0x91);
+        return true;
+    }
+    if (std::strcmp(text, "query failure") == 0) {
+        set_single_frame_plan(plan, target, true, 0x92);
+        return true;
+    }
+    if (std::strcmp(text, "query lamp on") == 0) {
+        set_single_frame_plan(plan, target, true, 0x93);
+        return true;
+    }
+    if (std::strcmp(text, "query level") == 0) {
+        set_single_frame_plan(plan, target, true, 0xA0);
+        return true;
+    }
+    if (std::strcmp(text, "query max") == 0) {
+        set_single_frame_plan(plan, target, true, 0xA1);
+        return true;
+    }
+    if (std::strcmp(text, "query min") == 0) {
+        set_single_frame_plan(plan, target, true, 0xA2);
+        return true;
+    }
+    if (std::strcmp(text, "query power on") == 0) {
+        set_single_frame_plan(plan, target, true, 0xA3);
+        return true;
+    }
+    if (std::strcmp(text, "query version") == 0) {
+        set_single_frame_plan(plan, target, true, 0x97);
+        return true;
+    }
+    if (std::strcmp(text, "query device type") == 0) {
+        set_single_frame_plan(plan, target, true, 0x99);
+        return true;
+    }
+    if (std::strcmp(text, "query groups") == 0) {
+        plan->frame_count = 2;
+        plan->frames[0].address_byte = dali_address_byte(target, true);
+        plan->frames[0].data_byte = 0xC0;
+        plan->frames[1].address_byte = dali_address_byte(target, true);
+        plan->frames[1].data_byte = 0xC1;
+        return true;
+    }
+    if (parse_prefixed_index(text, "query scene ", 15, &value)) {
+        set_single_frame_plan(plan, target, true, static_cast<uint8_t>(0xB0 + value));
+        return true;
+    }
+    if (parse_prefixed_index(text, "add to group ", 15, &value)) {
+        set_single_frame_plan(plan, target, true, static_cast<uint8_t>(0x60 + value));
+        return true;
+    }
+    if (parse_prefixed_index(text, "remove from group ", 15, &value)) {
+        set_single_frame_plan(plan, target, true, static_cast<uint8_t>(0x70 + value));
+        return true;
+    }
+    if (parse_prefixed_index(text, "remove scene ", 15, &value)) {
+        set_single_frame_plan(plan, target, true, static_cast<uint8_t>(0x50 + value));
+        return true;
+    }
+
+    return false;
+}
+
+bool build_dali_tx_plan(const char *command_text, dali_tx_plan_t *plan, char *error_text, size_t error_text_size)
+{
+    char command_copy[128];
+    std::snprintf(command_copy, sizeof(command_copy), "%s", command_text);
+    lowercase_ascii(command_copy);
+
+    char *separator = std::strstr(command_copy, "->");
+    if (separator == nullptr) {
+        std::snprintf(error_text, error_text_size, "Use format: <target> -> <action>");
+        return false;
+    }
+
+    *separator = '\0';
+    char *target_text = trim_ascii(command_copy);
+    char *action_text = trim_ascii(separator + 2);
+    dali_target_t target = {};
+
+    if (!parse_dali_target(target_text, &target)) {
+        std::snprintf(error_text, error_text_size, "Unknown target: %s", target_text);
+        return false;
+    }
+
+    if (!parse_dali_action(action_text, target, plan)) {
+        std::snprintf(error_text, error_text_size, "Unknown action: %s", action_text);
+        return false;
+    }
+
+    return true;
+}
+
 esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
 {
     // Для отправки из фоновой задачи используем API, которое само маршалит вызов в контекст httpd.
@@ -476,6 +759,26 @@ esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
     };
 
     return httpd_ws_send_data(server, fd, &frame);
+}
+
+esp_err_t ws_send_message(httpd_req_t *req, const char *text)
+{
+    char *payload = build_json_string_message("message", text);
+    if (payload == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    httpd_ws_frame_t response = {
+        .final = true,
+        .fragmented = false,
+        .type = HTTPD_WS_TYPE_TEXT,
+        .payload = reinterpret_cast<uint8_t *>(payload),
+        .len = std::strlen(payload),
+    };
+
+    const esp_err_t err = httpd_ws_send_frame(req, &response);
+    cJSON_free(payload);
+    return err;
 }
 
 void build_dali_message_text(const dali_frame_event_t &frame, char *buffer, size_t buffer_size)
@@ -758,9 +1061,45 @@ esp_err_t ws_handler(httpd_req_t *req)
     if (request != nullptr) {
         cJSON *command = cJSON_GetObjectItemCaseSensitive(request, "command");
         const char *command_value = cJSON_IsString(command) ? command->valuestring : "";
-        const bool accepted = cJSON_IsString(command);
+        bool accepted = false;
+        char feedback[160] = {};
+
+        if (cJSON_IsString(command)) {
+            dali_tx_plan_t plan = {};
+
+            if (build_dali_tx_plan(command_value, &plan, feedback, sizeof(feedback))) {
+                accepted = true;
+                for (uint8_t i = 0; i < plan.frame_count; ++i) {
+                    const esp_err_t send_err =
+                        dali_sniffer_send_frame(plan.frames[i].address_byte, plan.frames[i].data_byte);
+                    if (send_err != ESP_OK) {
+                        accepted = false;
+                        std::snprintf(feedback,
+                                      sizeof(feedback),
+                                      "Failed to send DALI frame %u/%u for \"%s\": %s",
+                                      static_cast<unsigned>(i + 1),
+                                      static_cast<unsigned>(plan.frame_count),
+                                      command_value,
+                                      esp_err_to_name(send_err));
+                        break;
+                    }
+                }
+
+                if (accepted) {
+                    std::snprintf(feedback, sizeof(feedback), "Sent: %s", command_value);
+                }
+            }
+        } else {
+            std::snprintf(feedback, sizeof(feedback), "Missing string field \"command\"");
+        }
 
         ack = build_command_ack_json(command_value, accepted);
+        if (feedback[0] != '\0') {
+            const esp_err_t message_err = ws_send_message(req, feedback);
+            if (message_err != ESP_OK) {
+                ESP_LOGW(kTag, "Failed to send WS feedback: %s", esp_err_to_name(message_err));
+            }
+        }
         cJSON_Delete(request);
     }
 

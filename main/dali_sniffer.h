@@ -14,3 +14,4 @@ struct dali_frame_event_t {
 
 esp_err_t dali_sniffer_start(void);
 QueueHandle_t dali_sniffer_get_event_queue(void);
+esp_err_t dali_sniffer_send_frame(uint8_t address_byte, uint8_t data_byte);

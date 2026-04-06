@@ -157,6 +157,313 @@ const embedded_asset_t *find_asset(const char *uri)
     return nullptr;
 }
 
+const char *dali_command_name(uint8_t command)
+{
+    switch (command) {
+    case 0x00:
+        return "OFF";
+    case 0x01:
+        return "UP";
+    case 0x02:
+        return "DOWN";
+    case 0x03:
+        return "STEP_UP";
+    case 0x04:
+        return "STEP_DOWN";
+    case 0x05:
+        return "RECALL_MAX_LEVEL";
+    case 0x06:
+        return "RECALL_MIN_LEVEL";
+    case 0x07:
+        return "STEP_DOWN_AND_OFF";
+    case 0x08:
+        return "ON_AND_STEP_UP";
+    case 0x09:
+        return "ENABLE_DAPC_SEQUENCE";
+    case 0x20:
+        return "RESET";
+    case 0x21:
+        return "STORE_ACTUAL_LEVEL";
+    case 0x22:
+        return "SAVE_PERSISTENT_VARIABLES";
+    case 0x23:
+        return "SET_OPERATING_MODE";
+    case 0x24:
+        return "RESET_MEMORY_BANK";
+    case 0x25:
+        return "IDENTIFY_DEVICE";
+    case 0x2A:
+        return "STORE_DTR_AS_MAX_LEVEL";
+    case 0x2B:
+        return "STORE_DTR_AS_MIN_LEVEL";
+    case 0x2C:
+        return "STORE_DTR_AS_SYSTEM_FAILURE_LEVEL";
+    case 0x2D:
+        return "STORE_DTR_AS_POWER_ON_LEVEL";
+    case 0x2E:
+        return "STORE_DTR_AS_FADE_TIME";
+    case 0x2F:
+        return "STORE_DTR_AS_FADE_RATE";
+    case 0x30:
+        return "STORE_DTR_AS_EXTENDED_FADE_TIME";
+    case 0x80:
+        return "STORE_DTR_AS_SHORT_ADDRESS";
+    case 0x81:
+        return "ENABLE_WRITE_MEMORY";
+    case 0x90:
+        return "QUERY_STATUS";
+    case 0x91:
+        return "QUERY_CONTROL_GEAR";
+    case 0x92:
+        return "QUERY_LAMP_FAILURE";
+    case 0x93:
+        return "QUERY_LAMP_POWER_ON";
+    case 0x94:
+        return "QUERY_LIMIT_ERROR";
+    case 0x95:
+        return "QUERY_RESET_STATE";
+    case 0x96:
+        return "QUERY_MISSING_SHORT_ADDRESS";
+    case 0x97:
+        return "QUERY_VERSION";
+    case 0x98:
+        return "QUERY_CONTENT_DTR";
+    case 0x99:
+        return "QUERY_DEVICE_TYPE";
+    case 0x9A:
+        return "QUERY_PHYSICAL_MINIMUM_LEVEL";
+    case 0x9B:
+        return "QUERY_POWER_FAILURE";
+    case 0x9C:
+        return "QUERY_CONTENT_DTR1";
+    case 0x9D:
+        return "QUERY_CONTENT_DTR2";
+    case 0x9E:
+        return "QUERY_OPERATING_MODE";
+    case 0x9F:
+        return "QUERY_LIGHT_SOURCE_TYPE";
+    case 0xA0:
+        return "QUERY_ACTUAL_LEVEL";
+    case 0xA1:
+        return "QUERY_MAX_LEVEL";
+    case 0xA2:
+        return "QUERY_MIN_LEVEL";
+    case 0xA3:
+        return "QUERY_POWER_ON_LEVEL";
+    case 0xA4:
+        return "QUERY_SYSTEM_FAILURE_LEVEL";
+    case 0xA5:
+        return "QUERY_FADE_TIME_FADE_RATE";
+    case 0xA6:
+        return "QUERY_MANUFACTURER_SPECIFIC_MODE";
+    case 0xC0:
+        return "QUERY_GROUPS_0_7";
+    case 0xC1:
+        return "QUERY_GROUPS_8_15";
+    case 0xC2:
+        return "QUERY_RANDOM_ADDRESS_H";
+    case 0xC3:
+        return "QUERY_RANDOM_ADDRESS_M";
+    case 0xC4:
+        return "QUERY_RANDOM_ADDRESS_L";
+    case 0xC5:
+        return "READ_MEMORY_LOCATION";
+    case 0xE2:
+        return "DT8_ACTIVATE";
+    case 0xE7:
+        return "DT8_SET_COLOUR_TEMP_TC";
+    case 0xEB:
+        return "DT8_SET_TEMPORARY_RGB_DIMLEVEL";
+    case 0xED:
+        return "QUERY_GEAR_TYPE";
+    case 0xEE:
+        return "QUERY_DIMMING_CURVE";
+    case 0xEF:
+        return "QUERY_POSSIBLE_OPERATING_MODE";
+    case 0xF0:
+        return "QUERY_FEATURES";
+    case 0xF1:
+        return "QUERY_FAILURE_STATUS";
+    case 0xF2:
+        return "QUERY_SHORT_CIRCUIT";
+    case 0xF3:
+        return "QUERY_OPEN_CIRCUIT";
+    case 0xF4:
+        return "QUERY_LOAD_DECREASE";
+    case 0xF5:
+        return "QUERY_LOAD_INCREASE";
+    case 0xF6:
+        return "QUERY_CURRENT_PROTECTOR_ACTIVE";
+    case 0xF7:
+        return "DT8_QUERY_COLOUR_STATUS";
+    case 0xF8:
+        return "DT8_QUERY_COLOUR_TYPE_FEATURES";
+    case 0xF9:
+        return "DT8_QUERY_COLOUR_VALUE";
+    case 0xFA:
+        return "QUERY_REFERENCE_RUNNING";
+    case 0xFB:
+        return "QUERY_REFERENCE_MEASUREMENT_FAILED";
+    case 0xFC:
+        return "QUERY_OPERATING_MODE_207";
+    case 0xFD:
+        return "QUERY_FAST_FADE_TIME";
+    case 0xFE:
+        return "QUERY_MIN_FAST_FADE_TIME";
+    case 0xFF:
+        return "QUERY_EXTENDED_VERSION_NUMBER";
+    default:
+        return nullptr;
+    }
+}
+
+const char *dali_special_command_name(uint8_t command)
+{
+    switch (command) {
+    case 0xA1:
+        return "TERMINATE";
+    case 0xA3:
+        return "DATA_TRANSFER_REGISTER0";
+    case 0xA5:
+        return "INITIALISE";
+    case 0xA7:
+        return "RANDOMISE";
+    case 0xA9:
+        return "COMPARE";
+    case 0xAB:
+        return "WITHDRAW";
+    case 0xAF:
+        return "PING";
+    case 0xB1:
+        return "SEARCHADDRH";
+    case 0xB3:
+        return "SEARCHADDRM";
+    case 0xB5:
+        return "SEARCHADDRL";
+    case 0xB7:
+        return "PROGRAM_SHORT_ADDRESS";
+    case 0xB9:
+        return "VERIFY_SHORT_ADDRESS";
+    case 0xBB:
+        return "QUERY_SHORT_ADDRESS";
+    case 0xBD:
+        return "PHYSICAL_SELECTION";
+    case 0xC1:
+        return "ENABLE_DEVICE_TYPE_X";
+    case 0xC3:
+        return "DATA_TRANSFER_REGISTER1";
+    case 0xC5:
+        return "DATA_TRANSFER_REGISTER2";
+    case 0xC7:
+        return "WRITE_MEMORY_LOCATION";
+    case 0xC9:
+        return "WRITE_MEMORY_LOCATION_NO_REPLY";
+    default:
+        return nullptr;
+    }
+}
+
+const char *dali_input_command_name(uint8_t command)
+{
+    switch (command) {
+    case 0x00:
+        return "INPUT_INITIALISE";
+    case 0x01:
+        return "INPUT_RANDOMISE";
+    case 0x02:
+        return "INPUT_COMPARE";
+    case 0x03:
+        return "INPUT_WITHDRAW";
+    case 0x04:
+        return "INPUT_PING";
+    case 0x05:
+        return "INPUT_RESET";
+    case 0x06:
+        return "INPUT_TERMINATE";
+    case 0x07:
+        return "INPUT_PROGRAM_SHORT_ADDR";
+    case 0x08:
+        return "INPUT_SEARCHADDRH";
+    case 0x09:
+        return "INPUT_SEARCHADDRM";
+    case 0x0A:
+        return "INPUT_SEARCHADDRL";
+    case 0x0B:
+        return "INPUT_QUERY_SHORT_ADDR";
+    case 0x10:
+        return "INPUT_QUERY_STATUS";
+    case 0x3C:
+        return "INPUT_READ_MEMORY_LOCATION";
+    default:
+        return nullptr;
+    }
+}
+
+bool dali_command_has_index(uint8_t command, const char **name, uint8_t *index)
+{
+    if (command >= 0x10 && command <= 0x1F) {
+        *name = "GO_TO_SCENE";
+        *index = command - 0x10;
+        return true;
+    }
+
+    if (command >= 0x40 && command <= 0x4F) {
+        *name = "STORE_DTR_AS_SCENE";
+        *index = command - 0x40;
+        return true;
+    }
+
+    if (command >= 0x50 && command <= 0x5F) {
+        *name = "REMOVE_FROM_SCENE";
+        *index = command - 0x50;
+        return true;
+    }
+
+    if (command >= 0x60 && command <= 0x6F) {
+        *name = "ADD_TO_GROUP";
+        *index = command - 0x60;
+        return true;
+    }
+
+    if (command >= 0x70 && command <= 0x7F) {
+        *name = "REMOVE_FROM_GROUP";
+        *index = command - 0x70;
+        return true;
+    }
+
+    if (command >= 0xB0 && command <= 0xBF) {
+        *name = "QUERY_SCENE_LEVEL";
+        *index = command - 0xB0;
+        return true;
+    }
+
+    return false;
+}
+
+void format_dali_target(uint8_t address_byte, const char **target_type, uint8_t *target_index)
+{
+    if ((address_byte & 0x80) == 0) {
+        *target_type = "short";
+        *target_index = (address_byte >> 1) & 0x3F;
+        return;
+    }
+
+    if ((address_byte & 0xE0) == 0x80) {
+        *target_type = "group";
+        *target_index = (address_byte >> 1) & 0x0F;
+        return;
+    }
+
+    if (address_byte == 0xFE || address_byte == 0xFF) {
+        *target_type = "broadcast";
+        *target_index = 0;
+        return;
+    }
+
+    *target_type = nullptr;
+    *target_index = 0;
+}
+
 esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
 {
     // Для отправки из фоновой задачи используем API, которое само маршалит вызов в контекст httpd.
@@ -173,31 +480,168 @@ esp_err_t ws_send_json(httpd_handle_t server, int fd, const char *json)
 
 void build_dali_message_text(const dali_frame_event_t &frame, char *buffer, size_t buffer_size)
 {
-    const char *direction = frame.is_backward_frame ? "backward" : "forward";
-    int width = 0;
+    if (frame.is_backward_frame) {
+        std::snprintf(buffer, buffer_size, "DALI reply: 0x%02" PRIX32, frame.data & 0xFF);
+        return;
+    }
 
-    switch (frame.length) {
-    case 8:
-        width = 2;
-        break;
-    case 16:
-        width = 4;
-        break;
-    case 24:
-        width = 6;
-        break;
-    default:
-        width = 8;
-        break;
+    if (frame.length == 24) {
+        const uint8_t address = (frame.data >> 16) & 0xFF;
+        const uint8_t opcode = (frame.data >> 8) & 0xFF;
+        const uint8_t parameter = frame.data & 0xFF;
+        const char *target_type = nullptr;
+        uint8_t target_index = 0;
+        format_dali_target(address, &target_type, &target_index);
+
+        if (const char *name = dali_input_command_name(opcode); name != nullptr) {
+            if (target_type == nullptr) {
+                std::snprintf(buffer,
+                              buffer_size,
+                              "DALI input cmd addr=0x%02X: %s arg=0x%02X raw=0x%06" PRIX32,
+                              address,
+                              name,
+                              parameter,
+                              frame.data & 0xFFFFFF);
+                return;
+            }
+
+            if (std::strcmp(target_type, "broadcast") == 0) {
+                std::snprintf(buffer,
+                              buffer_size,
+                              "DALI input cmd broadcast: %s arg=0x%02X raw=0x%06" PRIX32,
+                              name,
+                              parameter,
+                              frame.data & 0xFFFFFF);
+                return;
+            }
+
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI input cmd %s[%u]: %s arg=0x%02X raw=0x%06" PRIX32,
+                          target_type,
+                          target_index,
+                          name,
+                          parameter,
+                          frame.data & 0xFFFFFF);
+            return;
+        }
+
+        std::snprintf(buffer,
+                      buffer_size,
+                      "DALI 24-bit frame: addr=0x%02X opcode=0x%02X param=0x%02X raw=0x%06" PRIX32,
+                      address,
+                      opcode,
+                      parameter,
+                      frame.data & 0xFFFFFF);
+        return;
+    }
+
+    if (frame.length != 16) {
+        std::snprintf(buffer, buffer_size, "DALI frame (%u bit): 0x%08" PRIX32, frame.length, frame.data);
+        return;
+    }
+
+    const uint8_t address_byte = (frame.data >> 8) & 0xFF;
+    const uint8_t command_byte = frame.data & 0xFF;
+
+    const char *special_name = dali_special_command_name(address_byte);
+    if (special_name != nullptr) {
+        std::snprintf(buffer,
+                      buffer_size,
+                      "DALI special: %s arg=0x%02X raw=0x%04" PRIX32,
+                      special_name,
+                      command_byte,
+                      frame.data & 0xFFFF);
+        return;
+    }
+
+    if ((address_byte & 0x01) == 0) {
+        if ((address_byte & 0x80) == 0) {
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI DAPC short[%u] level=%u raw=0x%04" PRIX32,
+                          (address_byte >> 1) & 0x3F,
+                          command_byte,
+                          frame.data & 0xFFFF);
+            return;
+        }
+
+        if ((address_byte & 0xE0) == 0x80) {
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI DAPC group[%u] level=%u raw=0x%04" PRIX32,
+                          (address_byte >> 1) & 0x0F,
+                          command_byte,
+                          frame.data & 0xFFFF);
+            return;
+        }
+
+        if (address_byte == 0xFE) {
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI DAPC broadcast level=%u raw=0x%04" PRIX32,
+                          command_byte,
+                          frame.data & 0xFFFF);
+            return;
+        }
+    }
+
+    const char *name = dali_command_name(command_byte);
+    const char *indexed_name = nullptr;
+    uint8_t indexed_value = 0;
+    const bool has_index = dali_command_has_index(command_byte, &indexed_name, &indexed_value);
+    const char *target_type = nullptr;
+    uint8_t target_index = 0;
+    format_dali_target(address_byte, &target_type, &target_index);
+
+    if (target_type != nullptr) {
+        if (has_index) {
+            if (std::strcmp(target_type, "broadcast") == 0) {
+                std::snprintf(buffer,
+                              buffer_size,
+                              "DALI command broadcast: %s[%u] raw=0x%04" PRIX32,
+                              indexed_name,
+                              indexed_value,
+                              frame.data & 0xFFFF);
+                return;
+            }
+
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI command %s[%u]: %s[%u] raw=0x%04" PRIX32,
+                          target_type,
+                          target_index,
+                          indexed_name,
+                          indexed_value,
+                          frame.data & 0xFFFF);
+            return;
+        }
+
+        if (std::strcmp(target_type, "broadcast") == 0) {
+            std::snprintf(buffer,
+                          buffer_size,
+                          "DALI command broadcast: %s raw=0x%04" PRIX32,
+                          name != nullptr ? name : "UNKNOWN",
+                          frame.data & 0xFFFF);
+            return;
+        }
+
+        std::snprintf(buffer,
+                      buffer_size,
+                      "DALI command %s[%u]: %s raw=0x%04" PRIX32,
+                      target_type,
+                      target_index,
+                      name != nullptr ? name : "UNKNOWN",
+                      frame.data & 0xFFFF);
+        return;
     }
 
     std::snprintf(buffer,
                   buffer_size,
-                  "DALI %s frame (%u bit): 0x%0*" PRIX32,
-                  direction,
-                  frame.length,
-                  width,
-                  frame.data);
+                  "DALI frame addr=0x%02X cmd=0x%02X raw=0x%04" PRIX32,
+                  address_byte,
+                  command_byte,
+                  frame.data & 0xFFFF);
 }
 
 void broadcast_message(const dali_frame_event_t &frame)

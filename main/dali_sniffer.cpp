@@ -497,6 +497,13 @@ public:
         return event_queue_;
     }
 
+    void publish_frame_event(const dali_frame_event_t &frame)
+    {
+        if (event_queue_ != nullptr) {
+            xQueueSend(event_queue_, &frame, 0);
+        }
+    }
+
     esp_err_t send_frame(uint8_t address_byte, uint8_t data_byte)
     {
         uint8_t frame[2] = {address_byte, data_byte};
@@ -536,6 +543,12 @@ public:
                 }
 
                 ESP_LOGI(kTag, "Sent DALI frame: 0x%02X 0x%02X", address_byte, data_byte);
+                const dali_frame_event_t sent_frame = {
+                    .data = (static_cast<uint32_t>(address_byte) << 8) | data_byte,
+                    .length = 16,
+                    .is_backward_frame = false,
+                };
+                publish_frame_event(sent_frame);
                 return ESP_OK;
             }
         }
@@ -627,7 +640,7 @@ private:
             if (self->event_queue_ != nullptr) {
                 // Не блокируемся, чтобы sniffer не зависал под нагрузкой. Если очередь
                 // переполнится, кадр просто будет потерян, но приём продолжится.
-                xQueueSend(self->event_queue_, &frame, 0);
+                self->publish_frame_event(frame);
             }
         }
     }

@@ -1,20 +1,15 @@
-| Supported Targets | ESP32 |
-| ----------------- | ----- |
+# Dali sniffer
 
-# Wi-Fi WebSocket Chat Example
-
-Этот проект демонстрирует приложение для `ESP32`, которое подключается к Wi‑Fi, поднимает встроенный HTTP/WebSocket сервер и отдаёт собранный фронтенд через встроенную production-статику.
-
-После старта прошивка также поднимает sniffer DALI-шины и отправляет события на шине в WebSocket UI.
+После старта прошивка поднимает sniffer DALI-шины и отправляет события на шине в WebSocket UI.
 
 ## Поддерживаемая платформа
 
-Поддерживается только `ESP32`.
+Тестировал на `ESP32-S3` но должно работать и на `ESP32-C6`.
 
 Перед сборкой укажите целевой чип:
 
 ```bash
-idf.py set-target esp32
+idf.py set-target esp32-s3
 ```
 
 ## Настройка проекта
@@ -32,13 +27,16 @@ idf.py menuconfig
 * `DALI RX GPIO Pin` - GPIO для чтения состояния DALI-шины;
 * `DALI TX GPIO Pin` - GPIO для удержания DALI-трансивера в released-состоянии.
 
+ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
+ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
+
 Пример локальной настройки:
 
 ```text
 Example Configuration  --->
     Wi-Fi SSID = MyNetwork
     Wi-Fi password = MyPassword
-    DALI RX GPIO Pin = 16
+    DALI RX GPIO Pin = 14
     DALI TX GPIO Pin = 17
 ```
 
@@ -100,13 +98,85 @@ UI продолжает получать сообщения в формате:
 }
 ```
 
-Вместо тестового `Hello world` теперь публикуются реальные кадры DALI-шины:
+В UI публикуются кадры DALI-шины:
 
 * `DALI forward frame (16 bit): 0x....`
 * `DALI forward frame (24 bit): 0x......`
 * `DALI backward frame (8 bit): 0x..`
 
-ESP32-S3-Pico: Uses GPIO14 for DALI RX and GPIO17 for DALI TX_i.
-ESP32-C6-Pico: Uses GPIO5 for DALI RX and GPIO14 for DALI TX_i.
+## Управление из чата
 
-Для общей информации по настройке ESP-IDF см. [Getting Started Guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html).
+В поле ввода UI можно отправлять команды в формате:
+
+```text
+<TARGET> -> <ACTION>
+```
+
+Поддерживаемые цели:
+
+* `lamp <n>` - короткий адрес устройства `0..63`;
+* `group <n>` - группа `0..15`;
+* `all` - broadcast-команда;
+* `broadcast` - то же, что `all`.
+
+Поддерживаемые действия:
+
+* `off`
+* `on`
+* `max`
+* `min`
+* `up`
+* `down`
+* `step up`
+* `step down`
+* `step up on`
+* `step down off`
+* `scene <0..15>`
+* `<percent>%`
+* `query status`
+* `query present`
+* `query failure`
+* `query lamp on`
+* `query level`
+* `query max`
+* `query min`
+* `query power on`
+* `query version`
+* `query device type`
+* `query groups`
+* `query scene <0..15>`
+* `add to group <0..15>`
+* `remove from group <0..15>`
+* `remove scene <0..15>`
+
+Примеры:
+
+```text
+lamp 1 -> off
+lamp 1 -> on
+lamp 1 -> 50%
+lamp 3 -> scene 4
+
+group 2 -> max
+group 2 -> step down
+group 2 -> query groups
+
+all -> off
+broadcast -> query status
+
+lamp 5 -> query level
+lamp 5 -> query device type
+lamp 5 -> add to group 3
+lamp 5 -> remove from group 3
+lamp 5 -> remove scene 2
+```
+
+После успешной отправки UI покажет подтверждение вида:
+
+```text
+Message: Sent: lamp 1 -> off
+Command "lamp 1 -> off" accepted
+```
+
+Если строка не распознана или кадр не удалось отправить на шину, в чате появится сообщение об ошибке, а `command_ack` придёт с `accepted: false`.
+

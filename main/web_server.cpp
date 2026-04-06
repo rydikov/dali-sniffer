@@ -49,14 +49,11 @@ struct dali_target_t {
     uint8_t index;
 };
 
-struct dali_tx_frame_t {
-    uint8_t address_byte;
-    uint8_t data_byte;
-};
+constexpr size_t kMaxDaliTxFrames = 16;
 
 struct dali_tx_plan_t {
-    uint8_t frame_count;
-    dali_tx_frame_t frames[2];
+    size_t frame_count;
+    dali_tx_frame_t frames[kMaxDaliTxFrames];
 };
 
 // Таблица статических файлов, которые отдаются напрямую из памяти устройства.
@@ -522,6 +519,19 @@ bool parse_uint8_range(const char *text, uint8_t min_value, uint8_t max_value, u
     return true;
 }
 
+bool parse_uint16_range(const char *text, uint16_t min_value, uint16_t max_value, uint16_t *value)
+{
+    char *end = nullptr;
+    const long parsed = std::strtol(text, &end, 10);
+
+    if (text == end || *trim_ascii(end) != '\0' || parsed < min_value || parsed > max_value) {
+        return false;
+    }
+
+    *value = static_cast<uint16_t>(parsed);
+    return true;
+}
+
 bool parse_prefixed_index(const char *text, const char *prefix, uint8_t max_value, uint8_t *value)
 {
     const size_t prefix_length = std::strlen(prefix);
@@ -566,6 +576,65 @@ void set_single_frame_plan(dali_tx_plan_t *plan, const dali_target_t &target, bo
     plan->frames[0].data_byte = data_byte;
 }
 
+bool append_frame(dali_tx_plan_t *plan, uint8_t address_byte, uint8_t data_byte)
+{
+    if (plan->frame_count >= kMaxDaliTxFrames) {
+        return false;
+    }
+
+    plan->frames[plan->frame_count].address_byte = address_byte;
+    plan->frames[plan->frame_count].data_byte = data_byte;
+    ++plan->frame_count;
+    return true;
+}
+
+bool append_special_frame(dali_tx_plan_t *plan, uint8_t special_command, uint8_t value)
+{
+    return append_frame(plan, special_command, value);
+}
+
+bool append_command_frame(dali_tx_plan_t *plan, const dali_target_t &target, uint8_t command)
+{
+    return append_frame(plan, dali_address_byte(target, true), command);
+}
+
+bool append_dt8_enable(dali_tx_plan_t *plan)
+{
+    return append_special_frame(plan, 0xC1, 0x08);
+}
+
+bool build_dt8_color_temp_plan(dali_tx_plan_t *plan, const dali_target_t &target, uint16_t kelvin)
+{
+    const uint16_t mired = static_cast<uint16_t>(1000000UL / kelvin);
+
+    plan->frame_count = 0;
+    return append_special_frame(plan, 0xC3, static_cast<uint8_t>((mired >> 8) & 0xFF)) &&
+           append_special_frame(plan, 0xA3, static_cast<uint8_t>(mired & 0xFF)) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xE7) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xE2);
+}
+
+bool build_dt8_rgb_plan(dali_tx_plan_t *plan, const dali_target_t &target, uint8_t red, uint8_t green, uint8_t blue)
+{
+    plan->frame_count = 0;
+    return append_special_frame(plan, 0xC3, 0x01) &&
+           append_special_frame(plan, 0xA3, red) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xEB) &&
+           append_special_frame(plan, 0xC3, 0x02) &&
+           append_special_frame(plan, 0xA3, green) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xEB) &&
+           append_special_frame(plan, 0xC3, 0x04) &&
+           append_special_frame(plan, 0xA3, blue) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xEB) &&
+           append_dt8_enable(plan) &&
+           append_command_frame(plan, target, 0xE2);
+}
+
 bool parse_dali_target(char *text, dali_target_t *target)
 {
     if (std::strcmp(text, "all") == 0 || std::strcmp(text, "broadcast") == 0) {
@@ -590,10 +659,18 @@ bool parse_dali_target(char *text, dali_target_t *target)
     return false;
 }
 
-bool parse_dali_action(char *text, const dali_target_t &target, dali_tx_plan_t *plan)
+bool parse_dali_action(char *text,
+                       const dali_target_t &target,
+                       dali_tx_plan_t *plan,
+                       char *error_text,
+                       size_t error_text_size)
 {
     uint8_t value = 0;
     const size_t length = std::strlen(text);
+    uint16_t kelvin = 0;
+    uint8_t red = 0;
+    uint8_t green = 0;
+    uint8_t blue = 0;
 
     if (length > 1 && text[length - 1] == '%') {
         text[length - 1] = '\0';
@@ -714,6 +791,77 @@ bool parse_dali_action(char *text, const dali_target_t &target, dali_tx_plan_t *
         return true;
     }
 
+    if (std::strncmp(text, "ct ", 3) == 0) {
+        char *kelvin_text = trim_ascii(text + 3);
+        const size_t kelvin_length = std::strlen(kelvin_text);
+
+        if (target.kind == DaliTargetKind::Broadcast) {
+            std::snprintf(error_text, error_text_size, "DT8 ct supports only lamp/group targets");
+            return false;
+        }
+
+        if (kelvin_length < 2 || kelvin_text[kelvin_length - 1] != 'k') {
+            std::snprintf(error_text, error_text_size, "Use ct <kelvin>K, for example: ct 4000K");
+            return false;
+        }
+
+        kelvin_text[kelvin_length - 1] = '\0';
+        if (!parse_uint16_range(trim_ascii(kelvin_text), 1000, 65535, &kelvin)) {
+            std::snprintf(error_text, error_text_size, "Invalid color temperature: %sK", trim_ascii(kelvin_text));
+            return false;
+        }
+
+        if (!build_dt8_color_temp_plan(plan, target, kelvin)) {
+            std::snprintf(error_text, error_text_size, "Failed to build DT8 ct command");
+            return false;
+        }
+        return true;
+    }
+
+    if (std::strncmp(text, "rgb ", 4) == 0) {
+        char *rgb_text = trim_ascii(text + 4);
+        char *second = rgb_text;
+        char *third = nullptr;
+
+        if (target.kind == DaliTargetKind::Broadcast) {
+            std::snprintf(error_text, error_text_size, "DT8 rgb supports only lamp/group targets");
+            return false;
+        }
+
+        while (*second != '\0' && std::isspace(static_cast<unsigned char>(*second)) == 0) {
+            ++second;
+        }
+        if (*second == '\0') {
+            std::snprintf(error_text, error_text_size, "Use rgb <r> <g> <b>, for example: rgb 255 120 0");
+            return false;
+        }
+        *second++ = '\0';
+        second = trim_ascii(second);
+        third = second;
+        while (*third != '\0' && std::isspace(static_cast<unsigned char>(*third)) == 0) {
+            ++third;
+        }
+        if (*third == '\0') {
+            std::snprintf(error_text, error_text_size, "Use rgb <r> <g> <b>, for example: rgb 255 120 0");
+            return false;
+        }
+        *third++ = '\0';
+        third = trim_ascii(third);
+
+        if (!parse_uint8_range(rgb_text, 0, 255, &red) ||
+            !parse_uint8_range(second, 0, 255, &green) ||
+            !parse_uint8_range(third, 0, 255, &blue)) {
+            std::snprintf(error_text, error_text_size, "RGB values must be in range 0..255");
+            return false;
+        }
+
+        if (!build_dt8_rgb_plan(plan, target, red, green, blue)) {
+            std::snprintf(error_text, error_text_size, "Failed to build DT8 rgb command");
+            return false;
+        }
+        return true;
+    }
+
     return false;
 }
 
@@ -722,6 +870,9 @@ bool build_dali_tx_plan(const char *command_text, dali_tx_plan_t *plan, char *er
     char command_copy[128];
     std::snprintf(command_copy, sizeof(command_copy), "%s", command_text);
     lowercase_ascii(command_copy);
+    if (error_text_size > 0) {
+        error_text[0] = '\0';
+    }
 
     char *separator = std::strstr(command_copy, "->");
     if (separator == nullptr) {
@@ -739,8 +890,10 @@ bool build_dali_tx_plan(const char *command_text, dali_tx_plan_t *plan, char *er
         return false;
     }
 
-    if (!parse_dali_action(action_text, target, plan)) {
-        std::snprintf(error_text, error_text_size, "Unknown action: %s", action_text);
+    if (!parse_dali_action(action_text, target, plan, error_text, error_text_size)) {
+        if (error_text[0] == '\0') {
+            std::snprintf(error_text, error_text_size, "Unknown action: %s", action_text);
+        }
         return false;
     }
 
@@ -1068,25 +1221,16 @@ esp_err_t ws_handler(httpd_req_t *req)
             dali_tx_plan_t plan = {};
 
             if (build_dali_tx_plan(command_value, &plan, feedback, sizeof(feedback))) {
-                accepted = true;
-                for (uint8_t i = 0; i < plan.frame_count; ++i) {
-                    const esp_err_t send_err =
-                        dali_sniffer_send_frame(plan.frames[i].address_byte, plan.frames[i].data_byte);
-                    if (send_err != ESP_OK) {
-                        accepted = false;
-                        std::snprintf(feedback,
-                                      sizeof(feedback),
-                                      "Failed to send DALI frame %u/%u for \"%s\": %s",
-                                      static_cast<unsigned>(i + 1),
-                                      static_cast<unsigned>(plan.frame_count),
-                                      command_value,
-                                      esp_err_to_name(send_err));
-                        break;
-                    }
-                }
-
-                if (accepted) {
+                const esp_err_t send_err = dali_sniffer_send_frames(plan.frames, plan.frame_count);
+                if (send_err == ESP_OK) {
+                    accepted = true;
                     std::snprintf(feedback, sizeof(feedback), "Sent: %s", command_value);
+                } else {
+                    std::snprintf(feedback,
+                                  sizeof(feedback),
+                                  "Failed to send DALI command \"%s\": %s",
+                                  command_value,
+                                  esp_err_to_name(send_err));
                 }
             }
         } else {

@@ -31,6 +31,7 @@ constexpr uint8_t kRxBufferSize = 40;
 constexpr uint8_t kTxHalfBitBufferSize = 9;
 constexpr uint8_t kBeforeCmdIdleTicks = 125;
 constexpr TickType_t kSendTimeoutTicks = pdMS_TO_TICKS(500);
+constexpr TickType_t kInterFrameDelayTicks = pdMS_TO_TICKS(5);
 
 // Низкоуровневый драйвер занимается только времянкой: регулярно считывает состояние
 // шины, собирает битовый поток и восстанавливает полезные DALI-биты.
@@ -556,6 +557,26 @@ public:
         return ESP_ERR_TIMEOUT;
     }
 
+    esp_err_t send_frames(const dali_tx_frame_t *frames, size_t frame_count)
+    {
+        if (frames == nullptr || frame_count == 0) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        for (size_t i = 0; i < frame_count; ++i) {
+            const esp_err_t err = send_frame(frames[i].address_byte, frames[i].data_byte);
+            if (err != ESP_OK) {
+                return err;
+            }
+
+            if (i + 1 < frame_count) {
+                vTaskDelay(kInterFrameDelayTicks);
+            }
+        }
+
+        return ESP_OK;
+    }
+
 private:
     static uint8_t IRAM_ATTR bus_is_high()
     {
@@ -673,4 +694,9 @@ QueueHandle_t dali_sniffer_get_event_queue(void)
 esp_err_t dali_sniffer_send_frame(uint8_t address_byte, uint8_t data_byte)
 {
     return service().send_frame(address_byte, data_byte);
+}
+
+esp_err_t dali_sniffer_send_frames(const dali_tx_frame_t *frames, size_t frame_count)
+{
+    return service().send_frames(frames, frame_count);
 }

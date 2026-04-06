@@ -14,11 +14,22 @@
 namespace {
 
 constexpr const char *kTag = "dali_sniffer";
+// Таймер тикает заметно быстрее DALI-бита и даёт "сырые" сэмплы линии, из которых
+// потом восстанавливается Manchester-код. Значение взято с запасом, чтобы можно
+// было ловить небольшие отклонения таймингов на реальной шине.
 constexpr uint32_t kTimerResolutionHz = 24000000;
+// Период будильника GPTimer в микросекундах. Это шаг дискретизации, с которым мы
+// опрашиваем линию DALI и складываем уровни в буфер до последующей декодировки.
 constexpr uint32_t kTimerAlarmPeriodUs = 2500;
+// Очередь нужна, чтобы WebSocket-слой мог забирать уже собранные кадры без работы
+// в ISR и без блокировки sniffer-задачи.
 constexpr int kEventQueueSize = 32;
+// Буфер под "сырые" биты, считанные таймером. Этого хватает для стандартных
+// DALI-кадров 8/16/24 бит вместе со стартом, стопом и технологическим запасом.
 constexpr uint8_t kRxBufferSize = 40;
 
+// Низкоуровневый драйвер занимается только времянкой: регулярно считывает состояние
+// шины, собирает битовый поток и восстанавливает полезные DALI-биты.
 class DaliSnifferDriver {
 public:
     using RxCallback = void (*)(void *);
@@ -40,10 +51,14 @@ public:
 
     void IRAM_ATTR timer()
     {
+        // Таймер вызывается из ISR-контекста, поэтому здесь нельзя делать ничего
+        // тяжёлого: только читать уровень линии и обновлять компактное состояние.
         const uint8_t bus_is_high = bus_is_high_() ? 1 : 0;
 
         switch (busstate_) {
         case BusState::Idle:
+            // В Idle мы ждём ухода линии из состояния покоя. Для DALI это означает
+            // начало нового кадра, после чего сбрасываем внутренние счётчики.
             if (bus_is_high != 0) {
                 if (idle_count_ != 0xFF) {
                     idle_count_ = idle_count_ + 1;
@@ -58,6 +73,8 @@ public:
             busstate_ = BusState::Receiving;
             [[fallthrough]];
         case BusState::Receiving:
+            // Складываем последовательные сэмплы линии в байтовый буфер. Это ещё не
+            // декодированные DALI-биты, а лишь "фотография" линии во времени.
             rx_byte_ = (rx_byte_ << 1) | bus_is_high;
             rx_bit_count_ = rx_bit_count_ + 1;
             if (rx_bit_count_ == 8) {
@@ -70,6 +87,8 @@ public:
             }
 
             if (bus_is_high != 0) {
+                // Длинная серия единиц означает окончание передачи и переход шины в
+                // idle. После этого помечаем кадр как завершённый и будим задачу.
                 rx_idle_ = rx_idle_ + 1;
                 if (rx_idle_ >= 16) {
                     rx_data_[rx_pos_] = 0xFF;
@@ -92,13 +111,18 @@ public:
     {
         switch (rxstate_) {
         case RxState::Empty:
+            // Кадра нет.
             return 0;
         case RxState::Receiving:
+            // Кадр ещё не завершён.
             return 1;
         case RxState::Completed: {
+            // После завершения кадра пробуем восстановить полезные биты из
+            // Manchester-представления. Возвращаем длину уже декодированного кадра.
             rxstate_ = RxState::Empty;
             const uint8_t decoded_length = manchester_decode(rx_data_, rx_pos_ * 8, decoded_data);
             if (decoded_length < 3) {
+                // Меньше трёх бит считаем шумом/ошибкой синхронизации.
                 return 2;
             }
             return decoded_length;
@@ -122,6 +146,8 @@ private:
 
     void IRAM_ATTR set_busstate_idle()
     {
+        // Передатчик здесь используется только для задания "отпущенного" состояния
+        // линии, соответствующего покою шины для внешнего трансивера.
         bus_set_high_();
         idle_count_ = 0;
         busstate_ = BusState::Idle;
@@ -129,6 +155,9 @@ private:
 
     static uint8_t manchester_weight(uint8_t sample)
     {
+        // Вес оценивает, насколько 8-битное окно похоже на корректный Manchester:
+        // первая половина окна должна быть противоположна второй. Чем вес больше,
+        // тем лучше окно совпадает с ожидаемым шаблоном перехода.
         int8_t weight = 0;
         weight += ((sample >> 7) & 1) ? 1 : -1;
         weight += ((sample >> 6) & 1) ? 2 : -2;
@@ -149,15 +178,20 @@ private:
 
     static uint8_t sample_window(volatile uint8_t *encoded_data, uint16_t bit_pos, uint8_t *stop_or_collision)
     {
+        // Собираем 8-битное окно из произвольной битовой позиции внутри сырого
+        // буфера. Это позволяет чуть смещать окно влево/вправо и ловить лучший
+        // центр бита при декодировании.
         const uint8_t pos = bit_pos >> 3;
         const uint8_t shift = bit_pos & 0x7;
         const uint8_t sample = (encoded_data[pos] << shift) | (encoded_data[pos + 1] >> (8 - shift));
 
         if (sample == 0xFF) {
+            // Сплошные единицы трактуем как стоп/idle после завершения кадра.
             *stop_or_collision = 1;
         }
 
         if (sample == 0x00) {
+            // Сплошные нули обычно означают коллизию или сильно повреждённый участок.
             *stop_or_collision = 2;
         }
 
@@ -166,6 +200,9 @@ private:
 
     static uint8_t manchester_decode(volatile uint8_t *encoded_data, uint8_t encoded_bit_len, uint8_t *decoded_data)
     {
+        // Декодер идёт по сырому битовому потоку и на каждом шаге пробует три
+        // положения окна: текущее, на один сэмпл левее и на один правее. Так мы
+        // подстраиваемся к реальному центру бита и лучше переносим джиттер.
         uint8_t decoded_bit_len = 0;
         uint16_t encoded_bit_pos = 1;
 
@@ -198,6 +235,8 @@ private:
             }
 
             if (decoded_bit_len > 0) {
+                // Первый стартовый бит не кладём в полезную нагрузку, а последующие
+                // биты упаковываем в обычный MSB-first массив байтов.
                 const uint8_t byte_pos = (decoded_bit_len - 1) >> 3;
                 const uint8_t bit_pos = (decoded_bit_len - 1) & 0x7;
                 if (bit_pos == 0) {
@@ -211,6 +250,8 @@ private:
         }
 
         if (decoded_bit_len > 1) {
+            // Убираем стоповый бит, чтобы снаружи осталась только длина полезного кадра:
+            // 8, 16 или 24 бита.
             decoded_bit_len--;
         }
 
@@ -246,6 +287,8 @@ public:
 
         ESP_LOGI(kTag, "Configuring DALI sniffer GPIOs: RX=%d, TX=%d", rx_pin, tx_pin);
 
+        // TX здесь не передаёт DALI-команды в обычном смысле. Он нужен, чтобы держать
+        // связанный с трансивером выход в корректном логическом состоянии покоя.
         const gpio_config_t tx_config = {
             .pin_bit_mask = (1ULL << tx_pin),
             .mode = GPIO_MODE_OUTPUT,
@@ -264,6 +307,8 @@ public:
         };
         ESP_RETURN_ON_ERROR(gpio_config(&rx_config), kTag, "Failed to configure RX pin");
 
+        // Инициализируем драйвер функциями доступа к линии и callback'ом, который
+        // будет вызван, когда ISR обнаружит завершённый кадр.
         bus_set_high();
         driver_.begin(bus_is_high, bus_set_low, bus_set_high);
         driver_.set_rx_callback(rx_complete_isr, this);
@@ -276,6 +321,7 @@ public:
             }
         }
 
+        // GPTimer используется как стабильный high-resolution источник опроса линии.
         gptimer_config_t timer_config = {};
         timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
         timer_config.direction = GPTIMER_COUNT_UP;
@@ -288,6 +334,8 @@ public:
         ESP_RETURN_ON_ERROR(gptimer_register_event_callbacks(timer_, &callbacks, &driver_), kTag, "Failed to register timer callbacks");
         ESP_RETURN_ON_ERROR(gptimer_enable(timer_), kTag, "Failed to enable GPTimer");
 
+        // Таймер работает в auto-reload режиме и периодически вызывает ISR, которая
+        // скармливает очередной сэмпл линии в DaliSnifferDriver.
         const gptimer_alarm_config_t alarm_config = {
             .alarm_count = kTimerAlarmPeriodUs,
             .reload_count = 0,
@@ -299,6 +347,8 @@ public:
         ESP_RETURN_ON_ERROR(gptimer_start(timer_), kTag, "Failed to start GPTimer");
 
         if (sniffer_task_handle_ == nullptr) {
+            // Отдельная задача нужна, чтобы уже вне ISR декодировать кадр, логировать
+            // его и класть в очередь для веб-сервера.
             const BaseType_t task_created = xTaskCreate(sniffer_task,
                                                         "dali_sniffer",
                                                         4096,
@@ -329,11 +379,14 @@ private:
 
     static void IRAM_ATTR bus_set_low()
     {
+        // Для конкретного интерфейса здесь логика инвертирована: "low" на шине
+        // соответствует установке GPIO в 1. Это зависит от схемы трансивера.
         gpio_set_level(static_cast<gpio_num_t>(CONFIG_DALI_TX_PIN), 1);
     }
 
     static void IRAM_ATTR bus_set_high()
     {
+        // Аналогично, "high"/idle на шине даёт уровень 0 на локальном GPIO.
         gpio_set_level(static_cast<gpio_num_t>(CONFIG_DALI_TX_PIN), 0);
     }
 
@@ -351,6 +404,7 @@ private:
         auto *self = static_cast<DaliSnifferService *>(arg);
         BaseType_t higher_priority_task_woken = pdFALSE;
 
+        // ISR только будит задачу; вся дальнейшая обработка вынесена в task-контекст.
         if (self->sniffer_task_handle_ != nullptr) {
             vTaskNotifyGiveFromISR(self->sniffer_task_handle_, &higher_priority_task_woken);
         }
@@ -364,10 +418,12 @@ private:
         uint8_t decoded_data[4] = {};
 
         while (true) {
+            // Ждём сигнала от ISR о том, что очередной кадр собран целиком.
             ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
             const uint8_t bit_length = self->driver_.rx(decoded_data);
             if (bit_length <= 2) {
+                // Шум, неполный кадр или ошибка декодирования.
                 continue;
             }
 
@@ -375,6 +431,8 @@ private:
             frame.length = bit_length;
             frame.is_backward_frame = (bit_length == 8);
 
+            // Перекладываем декодированные байты в компактное представление события,
+            // которое затем можно безопасно передавать между задачами.
             if (bit_length == 8) {
                 frame.data = decoded_data[0];
             } else if (bit_length == 16) {
@@ -395,6 +453,8 @@ private:
                      frame.data);
 
             if (self->event_queue_ != nullptr) {
+                // Не блокируемся, чтобы sniffer не зависал под нагрузкой. Если очередь
+                // переполнится, кадр просто будет потерян, но приём продолжится.
                 xQueueSend(self->event_queue_, &frame, 0);
             }
         }

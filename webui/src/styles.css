@@ -234,6 +234,11 @@ input {
 
 input::placeholder {
   color: #9e97ab;
+  transition: opacity 120ms ease;
+}
+
+.input-wrap:focus-within input::placeholder {
+  opacity: 0;
 }
 
 .input-wrap:focus-within .input-ghost {

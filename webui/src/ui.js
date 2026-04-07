@@ -75,6 +75,11 @@ export function renderAckMessage(payload) {
 
 export function registerComposerHandlers({ onSubmit, onAutocomplete }) {
   function syncSuggestion() {
+    if (document.activeElement !== inputEl) {
+      ghostEl.textContent = '';
+      return;
+    }
+
     const suggestion = onAutocomplete(inputEl.value);
     const typedValue = inputEl.value;
 

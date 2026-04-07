@@ -160,6 +160,55 @@ body {
   white-space: pre-wrap;
 }
 
+.body .help-content {
+  display: grid;
+  gap: 10px;
+}
+
+.body .help-content h3,
+.body .help-content h4,
+.body .help-content p,
+.body .help-content ul {
+  margin: 0;
+}
+
+.body .help-content h3,
+.body .help-content h4 {
+  font-family: var(--ui-font);
+  line-height: 1.25;
+}
+
+.body .help-content h3 {
+  font-size: 1rem;
+  color: #ece7f7;
+}
+
+.body .help-content h4 {
+  font-size: 0.95rem;
+  color: #dcd4ea;
+}
+
+.body .help-content ul {
+  padding-left: 18px;
+}
+
+.body .help-content li + li {
+  margin-top: 4px;
+}
+
+.body .help-content code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #efe9ff;
+  font-size: 0.95em;
+}
+
+.body .help-content .help-examples {
+  list-style: none;
+  padding-left: 0;
+}
+
 .body.command {
   color: var(--info);
 }

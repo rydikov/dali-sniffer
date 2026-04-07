@@ -176,6 +176,57 @@ function buildActionCandidates(prefix, includeDt8) {
   return actions.map((action) => `${prefix}${action}`);
 }
 
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatInline(text) {
+  return escapeHtml(text).replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function renderList(lines) {
+  return `<ul>${lines
+    .map((line) => line.replace(/^\*\s*/, ''))
+    .map((line) => `<li>${formatInline(line)}</li>`)
+    .join('')}</ul>`;
+}
+
+function renderExampleList(lines) {
+  return `<ul class="help-examples">${lines
+    .map((line) => `<li><code>${escapeHtml(line.replaceAll('`', ''))}</code></li>`)
+    .join('')}</ul>`;
+}
+
+function renderParagraphs(lines) {
+  const blocks = [];
+  let current = [];
+
+  for (const line of lines) {
+    if (!line) {
+      if (current.length) {
+        blocks.push(current);
+        current = [];
+      }
+      continue;
+    }
+
+    current.push(line);
+  }
+
+  if (current.length) {
+    blocks.push(current);
+  }
+
+  return blocks
+    .map((block) => `<p>${block.map((line) => formatInline(line)).join('<br>')}</p>`)
+    .join('');
+}
+
 function buildHelpText() {
   return [
     'Управление из чата',
@@ -204,12 +255,37 @@ function buildHelpText() {
   ].join('\n');
 }
 
+function buildHelpHtml() {
+  return [
+    '<section class="help-content">',
+    '<h3>Управление из чата</h3>',
+    '<p>Формат команд:<br><code>&lt;TARGET&gt; -&gt; &lt;ACTION&gt;</code></p>',
+    '<h4>Поддерживаемые цели</h4>',
+    renderList(TARGET_LINES),
+    '<h4>Для DT8-команд <code>ct</code> и <code>rgb</code> поддерживаются только</h4>',
+    renderList(DT8_LINES),
+    '<h4>Поддерживаемые действия</h4>',
+    renderList(ACTION_LINES),
+    '<h4>Примеры</h4>',
+    renderExampleList(EXAMPLE_LINES),
+    '<h4>Примеры <code>raw</code> с расшифровкой</h4>',
+    renderList(RAW_EXAMPLE_LINES),
+    renderParagraphs(NOTE_LINES),
+    '<p>Подсказка: нажмите <code>Tab</code>, чтобы автодополнить команду в поле ввода.</p>',
+    '</section>'
+  ].join('');
+}
+
 export function isHelpCommand(command) {
   return command.trim().toLowerCase() === 'help';
 }
 
 export function getHelpText() {
   return buildHelpText();
+}
+
+export function getHelpHtml() {
+  return buildHelpHtml();
 }
 
 export function getAutocompleteSuggestion(input) {

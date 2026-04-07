@@ -1,8 +1,9 @@
 import './styles.css';
 
-import { getAutocompleteSuggestion, getHelpText, isHelpCommand } from './commands.js';
+import { getAutocompleteSuggestion, getHelpHtml, isHelpCommand } from './commands.js';
 import { getDevConnectionHint, resolveWebSocketUrl } from './config.js';
 import {
+  addHtmlMessage,
   addMessage,
   clearMessages,
   clearCommandInput,
@@ -70,7 +71,7 @@ const client = createSocketClient({
 registerComposerHandlers({
   onSubmit(command) {
     if (isHelpCommand(command)) {
-      addMessage('status', getHelpText());
+      addHtmlMessage('status', getHelpHtml(), 'help');
       clearCommandInput();
       return;
     }

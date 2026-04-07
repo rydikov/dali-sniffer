@@ -36,21 +36,34 @@ function classifyMessage(kind, body) {
   return 'info';
 }
 
-export function addMessage(kind, body) {
+function appendMessage(kind, content, mode = 'text', classificationText = '') {
   const row = document.createElement('article');
   const time = document.createElement('span');
   const message = document.createElement('span');
+  const messageBody = typeof classificationText === 'string' && classificationText ? classificationText : content;
 
   row.className = `msg ${kind}`;
   time.className = 'time';
-  message.className = `body ${classifyMessage(kind, body)}`;
+  message.className = `body ${classifyMessage(kind, typeof messageBody === 'string' ? messageBody : '')}`;
 
   time.textContent = `[${stamp()}]`;
-  message.textContent = body;
+  if (mode === 'html') {
+    message.innerHTML = content;
+  } else {
+    message.textContent = content;
+  }
 
   row.append(time, message);
   messagesEl.appendChild(row);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+export function addMessage(kind, body) {
+  appendMessage(kind, body, 'text', body);
+}
+
+export function addHtmlMessage(kind, html, classificationText = '') {
+  appendMessage(kind, html, 'html', classificationText);
 }
 
 export function setConnectionState(text, isOnline) {

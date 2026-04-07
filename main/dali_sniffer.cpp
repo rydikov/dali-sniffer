@@ -670,6 +670,10 @@ private:
                      frame.length,
                      frame.data);
 
+            if (frame.is_backward_frame) {
+                ESP_LOGI(kTag, "DALI reply: 0x%02" PRIX32, frame.data & 0xFF);
+            }
+
             if (self->event_queue_ != nullptr) {
                 // Не блокируемся, чтобы sniffer не зависал под нагрузкой. Если очередь
                 // переполнится, кадр просто будет потерян, но приём продолжится.

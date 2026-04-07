@@ -235,15 +235,25 @@ UI продолжает получать сообщения в формате:
 ```json
 {
   "type": "message",
-  "value": "DALI forward frame (16 bit): 0xA1B2"
+  "value": "DALI command short[0]: QUERY_STATUS raw=0x0190"
 }
 ```
 
 В UI публикуются кадры DALI-шины:
 
-* `DALI forward frame (16 bit): 0x....`
-* `DALI forward frame (24 bit): 0x......`
-* `DALI backward frame (8 bit): 0x..`
+* `DALI command short[0]: QUERY_STATUS raw=0x0190`
+* `DALI DAPC short[1] level=128 raw=0x0280`
+* `DALI input cmd short[0]: ... raw=0x......`
+* `DALI reply: 0x..`
+
+Для query-команд ожидаемая последовательность выглядит так:
+
+```text
+Message: DALI command short[0]: QUERY_STATUS raw=0x0190
+Message: DALI reply: 0xXX
+```
+
+Если после query reply не появился, это обычно означает, что устройство не ответило, отсутствует по этому адресу или на шине произошла коллизия/ошибка.
 
 ## Credits
 

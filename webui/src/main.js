@@ -1,12 +1,13 @@
 import './styles.css';
 
+import { getAutocompleteSuggestion, getHelpText, isHelpCommand } from './commands.js';
 import { getDevConnectionHint, resolveWebSocketUrl } from './config.js';
 import {
   addMessage,
   clearMessages,
   clearCommandInput,
   registerToolbarHandlers,
-  registerCommandHandler,
+  registerComposerHandlers,
   renderAckMessage,
   renderMessage,
   setPauseState,
@@ -66,13 +67,24 @@ const client = createSocketClient({
   }
 });
 
-registerCommandHandler((command) => {
-  if (!client.sendCommand(command)) {
-    return;
-  }
+registerComposerHandlers({
+  onSubmit(command) {
+    if (isHelpCommand(command)) {
+      addMessage('status', getHelpText());
+      clearCommandInput();
+      return;
+    }
 
-  addMessage('self', command);
-  clearCommandInput();
+    if (!client.sendCommand(command)) {
+      return;
+    }
+
+    addMessage('self', command);
+    clearCommandInput();
+  },
+  onAutocomplete(input) {
+    return getAutocompleteSuggestion(input);
+  }
 });
 
 registerToolbarHandlers({

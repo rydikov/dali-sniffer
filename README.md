@@ -2,12 +2,22 @@
 
 Этот проект превращает `ESP32` в DALI sniffer и WebSocket-консоль для локальной сети.
 
+## Поддерживаемая платформа
+
+Разработка велась на `ESP32-S3` но должно работать и на `ESP32-C6`.
+
+Для работы с шиной DALI используется плата:
+![Board](https://github.com/rydikov/dali-sniffer/raw/main/docs/dali_board.jpg)
+
+Интерфейс Web приложения выглядит так:
+![Interface](https://github.com/rydikov/dali-sniffer/raw/main/docs/interface.png)
+
 После старта прошивка:
 
 * подключается к Wi‑Fi;
 * поднимает встроенный HTTP/WebSocket сервер;
 * прослушивает DALI-шину и декодирует кадры;
-* публикует события шины в браузер в реальном времени;
+* публикует события шины в чат браузера;
 * принимает текстовые команды из UI и отправляет их обратно в DALI-шину.
 
 Проект удобен в двух сценариях:
@@ -29,9 +39,7 @@
 
 * [DALI-Lighting-Interface](https://github.com/qqqlab/DALI-Lighting-Interface/)
 
-## Поддерживаемая платформа
-
-Разработка велась на `ESP32-S3` но должно работать и на `ESP32-C6`.
+## Сборка и запуск
 
 Перед сборкой укажите целевой чип:
 
@@ -70,34 +78,6 @@ idf.py menuconfig
 
 Значения сохраняются в `sdkconfig`, поэтому рабочие параметры подключения могут храниться прямо в конфиге проекта.
 
-## Фронтенд
-
-Исходники UI находятся в `webui/`, а во firmware вшиваются уже собранные файлы из `main/web_dist/`.
-
-Для локальной разработки фронтенда:
-
-```bash
-cd webui
-npm install
-npm run dev
-```
-
-Если страница открыта через `Vite` dev server, для подключения к устройству передайте IP ESP32 в query-параметре:
-
-```text
-http://localhost:5173/?ws=192.168.1.42:80
-```
-
-Чтобы пересобрать production assets для прошивки:
-
-```bash
-cd webui
-npm install
-npm run build
-```
-
-Команда `npm run build` обновляет встроенные файлы в `main/web_dist/`, которые затем подхватываются `idf.py build`.
-
 ## Сборка и прошивка
 
 Соберите проект:
@@ -114,23 +94,6 @@ idf.py -p PORT flash monitor
 ```
 
 Чтобы выйти из монитора, нажмите `Ctrl-]`.
-
-## WebSocket события
-
-UI продолжает получать сообщения в формате:
-
-```json
-{
-  "type": "message",
-  "value": "DALI forward frame (16 bit): 0xA1B2"
-}
-```
-
-В UI публикуются кадры DALI-шины:
-
-* `DALI forward frame (16 bit): 0x....`
-* `DALI forward frame (24 bit): 0x......`
-* `DALI backward frame (8 bit): 0x..`
 
 ## Управление из чата
 
@@ -221,3 +184,49 @@ Command "lamp 1 -> off" accepted
 Если строка не распознана или кадр не удалось отправить на шину, в чате появится сообщение об ошибке, а `command_ack` придёт с `accepted: false`.
 
 Для `ct` значение вводится в Kelvin, а внутри прошивки конвертируется в DALI DT8 `mired`. Перед отправкой DT8-команд прошивка не делает предварительный `query features`, поэтому несовместимые устройства просто не отреагируют или вернут обычное поведение шины.
+
+
+## Разработка фронтенда
+
+Исходники UI находятся в `webui/`, а во firmware вшиваются уже собранные файлы из `main/web_dist/`.
+
+Для локальной разработки фронтенда:
+
+```bash
+cd webui
+npm install
+npm run dev
+```
+
+Если страница открыта через `Vite` dev server, для подключения к устройству передайте IP ESP32 в query-параметре:
+
+```text
+http://localhost:5173/?ws=192.168.1.42:80
+```
+
+Чтобы пересобрать production assets для прошивки:
+
+```bash
+cd webui
+npm install
+npm run build
+```
+
+Команда `npm run build` обновляет встроенные файлы в `main/web_dist/`, которые затем подхватываются `idf.py build`.
+
+## WebSocket события
+
+UI продолжает получать сообщения в формате:
+
+```json
+{
+  "type": "message",
+  "value": "DALI forward frame (16 bit): 0xA1B2"
+}
+```
+
+В UI публикуются кадры DALI-шины:
+
+* `DALI forward frame (16 bit): 0x....`
+* `DALI forward frame (24 bit): 0x......`
+* `DALI backward frame (8 bit): 0x..`

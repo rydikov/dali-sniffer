@@ -49,6 +49,11 @@ struct dali_target_t {
     uint8_t index;
 };
 
+enum class DaliCommandMode : uint8_t {
+    Targeted,
+    Raw,
+};
+
 constexpr size_t kMaxDaliTxFrames = 16;
 
 struct dali_tx_plan_t {
@@ -572,20 +577,40 @@ uint8_t dali_percent_to_level(uint8_t percent)
 void set_single_frame_plan(dali_tx_plan_t *plan, const dali_target_t &target, bool is_command, uint8_t data_byte)
 {
     plan->frame_count = 1;
-    plan->frames[0].address_byte = dali_address_byte(target, is_command);
-    plan->frames[0].data_byte = data_byte;
+    plan->frames[0].bit_length = 16;
+    plan->frames[0].data[0] = dali_address_byte(target, is_command);
+    plan->frames[0].data[1] = data_byte;
+    plan->frames[0].data[2] = 0;
 }
 
-bool append_frame(dali_tx_plan_t *plan, uint8_t address_byte, uint8_t data_byte)
+bool append_forward_frame(dali_tx_plan_t *plan, const uint8_t *data, uint8_t bit_length)
 {
     if (plan->frame_count >= kMaxDaliTxFrames) {
         return false;
     }
 
-    plan->frames[plan->frame_count].address_byte = address_byte;
-    plan->frames[plan->frame_count].data_byte = data_byte;
+    if (bit_length != 16 && bit_length != 24) {
+        return false;
+    }
+
+    const uint8_t byte_length = static_cast<uint8_t>(bit_length / 8);
+    plan->frames[plan->frame_count].bit_length = bit_length;
+    plan->frames[plan->frame_count].data[0] = 0;
+    plan->frames[plan->frame_count].data[1] = 0;
+    plan->frames[plan->frame_count].data[2] = 0;
+
+    for (uint8_t i = 0; i < byte_length; ++i) {
+        plan->frames[plan->frame_count].data[i] = data[i];
+    }
+
     ++plan->frame_count;
     return true;
+}
+
+bool append_frame(dali_tx_plan_t *plan, uint8_t address_byte, uint8_t data_byte)
+{
+    const uint8_t data[2] = {address_byte, data_byte};
+    return append_forward_frame(plan, data, 16);
 }
 
 bool append_special_frame(dali_tx_plan_t *plan, uint8_t special_command, uint8_t value)
@@ -657,6 +682,78 @@ bool parse_dali_target(char *text, dali_target_t *target)
     }
 
     return false;
+}
+
+bool parse_hex_byte_token(const char *text, uint8_t *value)
+{
+    if (text == nullptr || *text == '\0') {
+        return false;
+    }
+
+    if (std::strlen(text) > 2 && text[0] == '0' && text[1] == 'x') {
+        text += 2;
+    }
+
+    if (*text == '\0') {
+        return false;
+    }
+
+    char *end = nullptr;
+    const long parsed = std::strtol(text, &end, 16);
+
+    if (text == end || *trim_ascii(end) != '\0' || parsed < 0 || parsed > 0xFF) {
+        return false;
+    }
+
+    *value = static_cast<uint8_t>(parsed);
+    return true;
+}
+
+bool parse_raw_action(char *text, dali_tx_plan_t *plan, char *error_text, size_t error_text_size)
+{
+    constexpr size_t kMaxRawBytes = 3;
+    uint8_t raw_bytes[kMaxRawBytes] = {};
+    size_t raw_byte_count = 0;
+    char *cursor = trim_ascii(text);
+
+    if (*cursor == '\0') {
+        std::snprintf(error_text, error_text_size, "Use raw -> <byte1> <byte2> [byte3]");
+        return false;
+    }
+
+    while (*cursor != '\0') {
+        if (raw_byte_count >= kMaxRawBytes) {
+            std::snprintf(error_text, error_text_size, "Raw command supports only 2 or 3 bytes");
+            return false;
+        }
+
+        char *token_end = cursor;
+        while (*token_end != '\0' && std::isspace(static_cast<unsigned char>(*token_end)) == 0) {
+            ++token_end;
+        }
+
+        const char separator = *token_end;
+        *token_end = '\0';
+        if (!parse_hex_byte_token(cursor, &raw_bytes[raw_byte_count])) {
+            std::snprintf(error_text, error_text_size, "Invalid raw byte: %s", cursor);
+            return false;
+        }
+
+        ++raw_byte_count;
+        if (separator == '\0') {
+            break;
+        }
+
+        cursor = trim_ascii(token_end + 1);
+    }
+
+    if (raw_byte_count != 2 && raw_byte_count != 3) {
+        std::snprintf(error_text, error_text_size, "Raw command requires exactly 2 or 3 bytes");
+        return false;
+    }
+
+    plan->frame_count = 0;
+    return append_forward_frame(plan, raw_bytes, raw_byte_count == 2 ? 16 : 24);
 }
 
 bool parse_dali_action(char *text,
@@ -768,10 +865,14 @@ bool parse_dali_action(char *text,
     }
     if (std::strcmp(text, "query groups") == 0) {
         plan->frame_count = 2;
-        plan->frames[0].address_byte = dali_address_byte(target, true);
-        plan->frames[0].data_byte = 0xC0;
-        plan->frames[1].address_byte = dali_address_byte(target, true);
-        plan->frames[1].data_byte = 0xC1;
+        plan->frames[0].bit_length = 16;
+        plan->frames[0].data[0] = dali_address_byte(target, true);
+        plan->frames[0].data[1] = 0xC0;
+        plan->frames[0].data[2] = 0;
+        plan->frames[1].bit_length = 16;
+        plan->frames[1].data[0] = dali_address_byte(target, true);
+        plan->frames[1].data[1] = 0xC1;
+        plan->frames[1].data[2] = 0;
         return true;
     }
     if (parse_prefixed_index(text, "query scene ", 15, &value)) {
@@ -884,6 +985,18 @@ bool build_dali_tx_plan(const char *command_text, dali_tx_plan_t *plan, char *er
     char *target_text = trim_ascii(command_copy);
     char *action_text = trim_ascii(separator + 2);
     dali_target_t target = {};
+    DaliCommandMode mode = DaliCommandMode::Targeted;
+
+    if (std::strcmp(target_text, "raw") == 0) {
+        mode = DaliCommandMode::Raw;
+    }
+
+    if (mode == DaliCommandMode::Raw) {
+        if (!parse_raw_action(action_text, plan, error_text, error_text_size)) {
+            return false;
+        }
+        return true;
+    }
 
     if (!parse_dali_target(target_text, &target)) {
         std::snprintf(error_text, error_text_size, "Unknown target: %s", target_text);

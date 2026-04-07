@@ -505,9 +505,13 @@ public:
         }
     }
 
-    esp_err_t send_frame(uint8_t address_byte, uint8_t data_byte)
+    esp_err_t send_raw_frame(const dali_tx_frame_t &tx_frame)
     {
-        uint8_t frame[2] = {address_byte, data_byte};
+        if (tx_frame.bit_length != 16 && tx_frame.bit_length != 24) {
+            return ESP_ERR_INVALID_ARG;
+        }
+
+        const uint8_t byte_length = static_cast<uint8_t>(tx_frame.bit_length / 8);
         const TickType_t start_ticks = xTaskGetTickCount();
 
         while ((xTaskGetTickCount() - start_ticks) < kSendTimeoutTicks) {
@@ -516,7 +520,7 @@ public:
                 continue;
             }
 
-            const DaliSnifferDriver::TxResult start_result = driver_.tx(frame, 16);
+            const DaliSnifferDriver::TxResult start_result = driver_.tx(tx_frame.data, tx_frame.bit_length);
             if (start_result == DaliSnifferDriver::TxResult::BusNotIdle ||
                 start_result == DaliSnifferDriver::TxResult::Transmitting) {
                 vTaskDelay(pdMS_TO_TICKS(1));
@@ -537,16 +541,24 @@ public:
 
                 if (tx_result == DaliSnifferDriver::TxResult::Collision) {
                     ESP_LOGW(kTag,
-                             "DALI TX collision on frame 0x%02X 0x%02X",
-                             address_byte,
-                             data_byte);
+                             "DALI TX collision on %u-bit frame",
+                             static_cast<unsigned>(tx_frame.bit_length));
                     break;
                 }
 
-                ESP_LOGI(kTag, "Sent DALI frame: 0x%02X 0x%02X", address_byte, data_byte);
+                uint32_t frame_value = 0;
+                for (uint8_t i = 0; i < byte_length; ++i) {
+                    frame_value = (frame_value << 8) | tx_frame.data[i];
+                }
+
+                ESP_LOGI(kTag,
+                         "Sent DALI %u-bit frame: 0x%0*" PRIX32,
+                         static_cast<unsigned>(tx_frame.bit_length),
+                         byte_length * 2,
+                         frame_value);
                 const dali_frame_event_t sent_frame = {
-                    .data = (static_cast<uint32_t>(address_byte) << 8) | data_byte,
-                    .length = 16,
+                    .data = frame_value,
+                    .length = tx_frame.bit_length,
                     .is_backward_frame = false,
                 };
                 publish_frame_event(sent_frame);
@@ -564,7 +576,7 @@ public:
         }
 
         for (size_t i = 0; i < frame_count; ++i) {
-            const esp_err_t err = send_frame(frames[i].address_byte, frames[i].data_byte);
+            const esp_err_t err = send_raw_frame(frames[i]);
             if (err != ESP_OK) {
                 return err;
             }
@@ -693,7 +705,12 @@ QueueHandle_t dali_sniffer_get_event_queue(void)
 
 esp_err_t dali_sniffer_send_frame(uint8_t address_byte, uint8_t data_byte)
 {
-    return service().send_frame(address_byte, data_byte);
+    const dali_tx_frame_t frame = {
+        .bit_length = 16,
+        .data = {address_byte, data_byte, 0},
+    };
+
+    return service().send_raw_frame(frame);
 }
 
 esp_err_t dali_sniffer_send_frames(const dali_tx_frame_t *frames, size_t frame_count)

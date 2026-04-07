@@ -14,8 +14,8 @@ struct dali_frame_event_t {
 };
 
 struct dali_tx_frame_t {
-    uint8_t address_byte;
-    uint8_t data_byte;
+    uint8_t bit_length;
+    uint8_t data[3];
 };
 
 esp_err_t dali_sniffer_start(void);

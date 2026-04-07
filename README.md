@@ -10,8 +10,8 @@
 
 ![Board](https://github.com/rydikov/dali-sniffer/blob/develop/docs/dali_board.jpg)
 
-На момент разработки плату Dali можно купить на OZON: https://ozon.ru/t/iNTS5aK
-ESP32 желательно купить с посадочнми гнезами под плату Dali (S3 или C6): https://ali.click/jkle513
+* На момент разработки плату Dali можно купить на OZON: https://ozon.ru/t/iNTS5aK
+* ESP32 желательно купить с посадочнми гнезами под плату Dali (S3 или C6): https://ali.click/jkle513
 
 Интерфейс Web приложения:
 ![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)

@@ -7,10 +7,10 @@
 Разработка велась на `ESP32-S3` но должно работать и на `ESP32-C6`.
 
 Для работы с шиной DALI используется плата:
-![Board](https://github.com/rydikov/dali-sniffer/raw/main/docs/dali_board.jpg)
+![Board](https://github.com/rydikov/dali-sniffer/blob/develop/docs/dali_board.jpg)
 
 Интерфейс Web приложения выглядит так:
-![Interface](https://github.com/rydikov/dali-sniffer/raw/main/docs/interface.png)
+![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)
 
 После старта прошивка:
 

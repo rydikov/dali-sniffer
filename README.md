@@ -33,12 +33,6 @@
 * управлять DT8-параметрами, например цветовой температурой и RGB, если подключённые control gear это поддерживают.
 
 
-## Credits
-
-Часть low-level логики приёма/передачи DALI в этом проекте опирается на идеи и структуру из:
-
-* [DALI-Lighting-Interface](https://github.com/qqqlab/DALI-Lighting-Interface/)
-
 ## Сборка и запуск
 
 Перед сборкой укажите целевой чип:
@@ -230,3 +224,9 @@ UI продолжает получать сообщения в формате:
 * `DALI forward frame (16 bit): 0x....`
 * `DALI forward frame (24 bit): 0x......`
 * `DALI backward frame (8 bit): 0x..`
+
+## Credits
+
+Часть low-level логики приёма/передачи DALI в этом проекте опирается на идеи и структуру из:
+
+* [DALI-Lighting-Interface](https://github.com/qqqlab/DALI-Lighting-Interface/)

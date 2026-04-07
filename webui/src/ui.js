@@ -1,6 +1,7 @@
 const messagesEl = document.getElementById('messages');
 const formEl = document.getElementById('command-form');
 const inputEl = document.getElementById('command-input');
+const ghostEl = document.getElementById('command-ghost');
 const stateEl = document.getElementById('ws-state');
 const statusDotEl = document.getElementById('status-dot');
 const sendButtonEl = document.getElementById('send-button');
@@ -72,7 +73,19 @@ export function renderAckMessage(payload) {
   addMessage('command', `Command "${payload.command || ''}" ${accepted}`);
 }
 
-export function registerCommandHandler(handler) {
+export function registerComposerHandlers({ onSubmit, onAutocomplete }) {
+  function syncSuggestion() {
+    const suggestion = onAutocomplete(inputEl.value);
+    const typedValue = inputEl.value;
+
+    if (!suggestion || suggestion.length <= typedValue.length) {
+      ghostEl.textContent = '';
+      return;
+    }
+
+    ghostEl.textContent = `${typedValue}${suggestion.slice(typedValue.length)}`;
+  }
+
   formEl.addEventListener('submit', (event) => {
     event.preventDefault();
 
@@ -81,12 +94,37 @@ export function registerCommandHandler(handler) {
       return;
     }
 
-    handler(command);
+    onSubmit(command);
   });
+
+  inputEl.addEventListener('input', syncSuggestion);
+  inputEl.addEventListener('focus', syncSuggestion);
+  inputEl.addEventListener('blur', () => {
+    ghostEl.textContent = '';
+  });
+
+  inputEl.addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+
+    const suggestion = onAutocomplete(inputEl.value);
+    if (!suggestion) {
+      return;
+    }
+
+    event.preventDefault();
+    inputEl.value = suggestion;
+    inputEl.setSelectionRange(suggestion.length, suggestion.length);
+    syncSuggestion();
+  });
+
+  syncSuggestion();
 }
 
 export function clearCommandInput() {
   inputEl.value = '';
+  ghostEl.textContent = '';
   inputEl.focus();
 }
 

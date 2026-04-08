@@ -296,7 +296,7 @@ esp_err_t ws_handler(httpd_req_t *req)
         }
 
         mqtt_bridge_publish_command_result("ws", command_value, result);
-        ack = build_command_ack_json(command_value, result.accepted);
+        ack = build_command_ack_json(command_value, result.sent);
         if (result.feedback[0] != '\0') {
             const esp_err_t message_err = ws_send_message(req, result.feedback);
             if (message_err != ESP_OK) {

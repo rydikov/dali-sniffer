@@ -22,7 +22,7 @@ menu "Sniffer Configuration"
         string "MQTT custom id"
         default "A"
         help
-            MQTT root suffix used to form the topic tree /dali/<custom_id>.
+            MQTT root suffix used to form the topic tree dali/<custom_id>.
 
     config DALI_RX_PIN
         int "DALI RX GPIO Pin"

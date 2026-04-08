@@ -226,25 +226,25 @@ MQTT включается только если в `menuconfig` заполнен
 Корневой topic всегда строится в формате:
 
 ```text
-/dali/<custom_id>
+dali/<custom_id>
 ```
 
 Например, при `MQTT custom id = A` дерево будет таким:
 
 ```text
-/dali/A/status
-/dali/A/event/sniffer
-/dali/A/event/command/request
-/dali/A/event/command/result
-/dali/A/command/execute
+dali/A/status
+dali/A/event/sniffer
+dali/A/event/command/request
+dali/A/event/command/result
+dali/A/command/execute
 ```
 
 Что публикуется:
 
-* `/dali/<custom_id>/status` - состояние MQTT и устройства;
-* `/dali/<custom_id>/event/sniffer` - все кадры, увиденные сниффером;
-* `/dali/<custom_id>/event/command/request` - факт приёма команды из `ws` или `mqtt`;
-* `/dali/<custom_id>/event/command/result` - результат исполнения команды.
+* `dali/<custom_id>/status` - состояние MQTT и устройства;
+* `dali/<custom_id>/event/sniffer` - все кадры, увиденные сниффером;
+* `dali/<custom_id>/event/command/request` - факт приёма команды из `ws` или `mqtt`;
+* `dali/<custom_id>/event/command/result` - результат исполнения команды.
 
 Пример `status`:
 
@@ -254,7 +254,7 @@ MQTT включается только если в `menuconfig` заполнен
   "mqtt_enabled": true,
   "mqtt_connected": true,
   "custom_id": "A",
-  "root_topic": "/dali/A",
+  "root_topic": "dali/A",
   "ip": "192.168.1.42",
   "uptime_ms": 123456
 }
@@ -323,7 +323,7 @@ MQTT включается только если в `menuconfig` заполнен
 Команды на исполнение принимаются через:
 
 ```text
-/dali/<custom_id>/command/execute
+dali/<custom_id>/command/execute
 ```
 
 Payload должен быть JSON:

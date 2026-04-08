@@ -205,6 +205,144 @@ Command "lamp 1 -> off" accepted
 
 Команда `raw` отправляет байты в шину без проверки DALI-семантики адреса и opcode. В первой версии поддерживаются только forward-кадры длиной `16` и `24` бит, то есть ровно `2` или `3` байта. Байт можно указывать как `AA` или `0xAA`.
 
+## MQTT
+
+MQTT включается только если в `menuconfig` заполнен `MQTT broker address`.
+
+В разделе `WiFi Configuration` доступны MQTT-параметры:
+
+* `MQTT broker address` - адрес MQTT брокера;
+* `MQTT custom id` - суффикс корневого topic, по умолчанию `A`.
+
+Поддерживаемые форматы `MQTT broker address`:
+
+* `192.168.1.50`
+* `192.168.1.50:1883`
+* `mqtt://192.168.1.50:1883`
+* `mqtts://broker.example.com:8883`
+
+Если схема `mqtt://` или `mqtts://` не указана, прошивка автоматически добавит `mqtt://`.
+
+Корневой topic всегда строится в формате:
+
+```text
+/dali/<custom_id>
+```
+
+Например, при `MQTT custom id = A` дерево будет таким:
+
+```text
+/dali/A/status
+/dali/A/event/sniffer
+/dali/A/event/command/request
+/dali/A/event/command/result
+/dali/A/command/execute
+```
+
+Что публикуется:
+
+* `/dali/<custom_id>/status` - состояние MQTT и устройства;
+* `/dali/<custom_id>/event/sniffer` - все кадры, увиденные сниффером;
+* `/dali/<custom_id>/event/command/request` - факт приёма команды из `ws` или `mqtt`;
+* `/dali/<custom_id>/event/command/result` - результат исполнения команды.
+
+Пример `status`:
+
+```json
+{
+  "type": "status",
+  "mqtt_enabled": true,
+  "mqtt_connected": true,
+  "custom_id": "A",
+  "root_topic": "/dali/A",
+  "ip": "192.168.1.42",
+  "uptime_ms": 123456
+}
+```
+
+Пример события сниффера:
+
+```json
+{
+  "type": "sniffer_event",
+  "origin": "sniffer",
+  "uptime_ms": 123456,
+  "bit_length": 16,
+  "is_backward_frame": false,
+  "raw_hex": "0190",
+  "raw_value": 400,
+  "text": "DALI command short[0]: QUERY_STATUS raw=0x0190",
+  "address": {
+    "kind": "short",
+    "value": 0,
+    "label": "short[0]"
+  },
+  "command": "QUERY_STATUS"
+}
+```
+
+В `event/sniffer` дополнительно могут появляться поля:
+
+* `command_index` - индекс сцены/группы для индексируемых команд;
+* `level` - уровень для DAPC;
+* `arg` - аргумент special/input команды;
+* `opcode` - opcode для generic 24-bit frame;
+* `command: null` - если человекочитаемое имя команды определить не удалось.
+
+Поле `address` содержит:
+
+* `kind` - `short`, `group`, `broadcast`, `special`, `reply`, `unknown`;
+* `value` - номер short/group адреса, `0` для `broadcast` или `null`, если численного адреса нет;
+* `label` - готовая строка вроде `short[5]`, `group[2]`, `broadcast`, `special`.
+
+Примеры событий исполнения команды:
+
+```json
+{
+  "type": "command_request",
+  "origin": "ws",
+  "uptime_ms": 123456,
+  "command_text": "lamp 1 -> off",
+  "accepted": true
+}
+```
+
+```json
+{
+  "type": "command_result",
+  "origin": "mqtt",
+  "uptime_ms": 123789,
+  "command_text": "lamp 1 -> off",
+  "accepted": true,
+  "sent": true,
+  "frame_count": 1,
+  "feedback": "Sent: lamp 1 -> off"
+}
+```
+
+Команды на исполнение принимаются через:
+
+```text
+/dali/<custom_id>/command/execute
+```
+
+Payload должен быть JSON:
+
+```json
+{
+  "command": "lamp 1 -> off"
+}
+```
+
+Поддерживаются те же строки, что и в UI и WebSocket:
+
+* `lamp 1 -> off`
+* `group 2 -> query groups`
+* `raw -> FF 00`
+* `lamp 1 -> ct 4000K`
+
+Если JSON битый, поле `command` отсутствует или очередь MQTT-команд переполнена, прошивка не отправляет кадр в шину и публикует `command_request`/`command_result` с `accepted: false`.
+
 
 ## Разработка фронтенда и запуск его локально
 

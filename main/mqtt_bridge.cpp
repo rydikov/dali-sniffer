@@ -60,7 +60,7 @@ bool set_topic(char *buffer, size_t buffer_size, const char *suffix)
 
 bool build_topics()
 {
-    const int root_length = std::snprintf(s_root_topic, sizeof(s_root_topic), "/dali/%s", CONFIG_MQTT_CUSTOM_ID);
+    const int root_length = std::snprintf(s_root_topic, sizeof(s_root_topic), "dali/%s", CONFIG_MQTT_CUSTOM_ID);
     if (root_length < 0 || static_cast<size_t>(root_length) >= sizeof(s_root_topic)) {
         return false;
     }

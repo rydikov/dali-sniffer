@@ -44,14 +44,32 @@ char s_command_result_topic[kTopicBufferSize] = {};
 char s_command_execute_topic[kTopicBufferSize] = {};
 char s_broker_uri[kBrokerUriSize] = {};
 
-void build_topics()
+bool set_topic(char *buffer, size_t buffer_size, const char *suffix)
 {
-    std::snprintf(s_root_topic, sizeof(s_root_topic), "/dali/%s", CONFIG_MQTT_CUSTOM_ID);
-    std::snprintf(s_status_topic, sizeof(s_status_topic), "%s/status", s_root_topic);
-    std::snprintf(s_sniffer_topic, sizeof(s_sniffer_topic), "%s/event/sniffer", s_root_topic);
-    std::snprintf(s_command_request_topic, sizeof(s_command_request_topic), "%s/event/command/request", s_root_topic);
-    std::snprintf(s_command_result_topic, sizeof(s_command_result_topic), "%s/event/command/result", s_root_topic);
-    std::snprintf(s_command_execute_topic, sizeof(s_command_execute_topic), "%s/command/execute", s_root_topic);
+    const size_t root_length = std::strlen(s_root_topic);
+    const size_t suffix_length = std::strlen(suffix);
+
+    if (root_length + suffix_length + 1 > buffer_size) {
+        return false;
+    }
+
+    std::memcpy(buffer, s_root_topic, root_length);
+    std::memcpy(buffer + root_length, suffix, suffix_length + 1);
+    return true;
+}
+
+bool build_topics()
+{
+    const int root_length = std::snprintf(s_root_topic, sizeof(s_root_topic), "/dali/%s", CONFIG_MQTT_CUSTOM_ID);
+    if (root_length < 0 || static_cast<size_t>(root_length) >= sizeof(s_root_topic)) {
+        return false;
+    }
+
+    return set_topic(s_status_topic, sizeof(s_status_topic), "/status") &&
+           set_topic(s_sniffer_topic, sizeof(s_sniffer_topic), "/event/sniffer") &&
+           set_topic(s_command_request_topic, sizeof(s_command_request_topic), "/event/command/request") &&
+           set_topic(s_command_result_topic, sizeof(s_command_result_topic), "/event/command/result") &&
+           set_topic(s_command_execute_topic, sizeof(s_command_execute_topic), "/command/execute");
 }
 
 bool publish_json(const char *topic, cJSON *root)
@@ -214,7 +232,10 @@ esp_err_t mqtt_bridge_start(void)
         return ESP_OK;
     }
 
-    build_topics();
+    if (!build_topics()) {
+        ESP_LOGE(kTag, "MQTT topic is too long. Shorten CONFIG_MQTT_CUSTOM_ID.");
+        return ESP_ERR_INVALID_SIZE;
+    }
     s_command_queue = xQueueCreate(kQueueSize, sizeof(mqtt_command_job_t));
     if (s_command_queue == nullptr) {
         return ESP_ERR_NO_MEM;

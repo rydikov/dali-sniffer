@@ -1,4 +1,4 @@
-menu "WiFi Configuration"
+menu "Sniffer Configuration"
 
     config WIFI_SSID
         string "Wi-Fi SSID"
@@ -11,6 +11,18 @@ menu "WiFi Configuration"
         default ""
         help
             Wi-Fi password for the station connection.
+
+    config MQTT_BROKER_ADDRESS
+        string "MQTT broker address"
+        default ""
+        help
+            Broker host or URI. Leave empty to disable MQTT integration.
+
+    config MQTT_CUSTOM_ID
+        string "MQTT custom id"
+        default "A"
+        help
+            MQTT root suffix used to form the topic tree dali/<custom_id>.
 
     config DALI_RX_PIN
         int "DALI RX GPIO Pin"

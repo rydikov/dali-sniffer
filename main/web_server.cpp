@@ -441,7 +441,6 @@ void websocket_event_task(void *arg)
     while (true) {
         if (xQueueReceive(queue, &frame, portMAX_DELAY) == pdTRUE) {
             broadcast_message(frame);
-            mqtt_bridge_publish_sniffer_event(frame);
         }
     }
 }

@@ -38,7 +38,6 @@ bool s_connected = false;
 QueueHandle_t s_command_queue = nullptr;
 char s_root_topic[kTopicBufferSize] = {};
 char s_status_topic[kTopicBufferSize] = {};
-char s_sniffer_topic[kTopicBufferSize] = {};
 char s_command_request_topic[kTopicBufferSize] = {};
 char s_command_result_topic[kTopicBufferSize] = {};
 char s_command_execute_topic[kTopicBufferSize] = {};
@@ -66,7 +65,6 @@ bool build_topics()
     }
 
     return set_topic(s_status_topic, sizeof(s_status_topic), "/status") &&
-           set_topic(s_sniffer_topic, sizeof(s_sniffer_topic), "/event/sniffer") &&
            set_topic(s_command_request_topic, sizeof(s_command_request_topic), "/event/command/request") &&
            set_topic(s_command_result_topic, sizeof(s_command_result_topic), "/event/command/result") &&
            set_topic(s_command_execute_topic, sizeof(s_command_execute_topic), "/command/execute");
@@ -93,22 +91,6 @@ void add_common_event_fields(cJSON *root, const char *type, const char *origin)
     cJSON_AddStringToObject(root, "type", type);
     cJSON_AddStringToObject(root, "origin", origin);
     cJSON_AddNumberToObject(root, "uptime_ms", esp_timer_get_time() / 1000);
-}
-
-void add_address_json(cJSON *root, const dali_frame_description_t &description)
-{
-    cJSON *address = cJSON_AddObjectToObject(root, "address");
-    if (address == nullptr) {
-        return;
-    }
-
-    cJSON_AddStringToObject(address, "kind", description.address_kind);
-    if (description.has_address_value) {
-        cJSON_AddNumberToObject(address, "value", description.address_value);
-    } else {
-        cJSON_AddNullToObject(address, "value");
-    }
-    cJSON_AddStringToObject(address, "label", description.address_label);
 }
 
 void publish_invalid_mqtt_command(const char *command_text, const char *feedback)
@@ -282,50 +264,6 @@ void mqtt_bridge_publish_status(void)
     cJSON_AddNumberToObject(root, "uptime_ms", esp_timer_get_time() / 1000);
     add_ip_address(root);
     publish_json(s_status_topic, root);
-    cJSON_Delete(root);
-}
-
-void mqtt_bridge_publish_sniffer_event(const dali_frame_event_t &frame)
-{
-    if (!s_enabled) {
-        return;
-    }
-
-    dali_frame_description_t description = {};
-    dali_describe_frame(frame, &description);
-
-    cJSON *root = cJSON_CreateObject();
-    if (root == nullptr) {
-        return;
-    }
-
-    add_common_event_fields(root, "sniffer_event", "sniffer");
-    cJSON_AddNumberToObject(root, "bit_length", description.bit_length);
-    cJSON_AddBoolToObject(root, "is_backward_frame", description.is_backward_frame);
-    cJSON_AddStringToObject(root, "raw_hex", description.raw_hex);
-    cJSON_AddNumberToObject(root, "raw_value", description.raw_value);
-    cJSON_AddStringToObject(root, "text", description.text);
-    add_address_json(root, description);
-
-    if (description.has_command_name) {
-        cJSON_AddStringToObject(root, "command", description.command_name);
-    } else {
-        cJSON_AddNullToObject(root, "command");
-    }
-    if (description.has_command_index) {
-        cJSON_AddNumberToObject(root, "command_index", description.command_index);
-    }
-    if (description.has_level) {
-        cJSON_AddNumberToObject(root, "level", description.level);
-    }
-    if (description.has_arg) {
-        cJSON_AddNumberToObject(root, "arg", description.arg);
-    }
-    if (description.has_opcode) {
-        cJSON_AddNumberToObject(root, "opcode", description.opcode);
-    }
-
-    publish_json(s_sniffer_topic, root);
     cJSON_Delete(root);
 }
 

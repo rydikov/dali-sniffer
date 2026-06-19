@@ -22,3 +22,11 @@ esp_err_t devices_api_find_brightness_devices(const char *address_kind,
                                               devices_api_device_match_t *matches,
                                               size_t max_matches,
                                               size_t *match_count);
+esp_err_t devices_api_find_color_temperature_devices(const char *address_kind,
+                                                     bool has_address_value,
+                                                     int address_value,
+                                                     bool require_scene,
+                                                     uint8_t scene,
+                                                     devices_api_device_match_t *matches,
+                                                     size_t max_matches,
+                                                     size_t *match_count);

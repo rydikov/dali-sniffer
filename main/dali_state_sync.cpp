@@ -14,7 +14,15 @@ namespace {
 constexpr const char *kTag = "dali_state_sync";
 constexpr size_t kMaxBrightnessMatches = 64;
 constexpr uint8_t kDaliQueryActualLevel = 0xA0;
+constexpr uint32_t kKelvinMiredNumerator = 1000000UL;
 constexpr TickType_t kDaliReplyWaitAfterQueryTicks = pdMS_TO_TICKS(25);
+
+struct dt8_color_temperature_context_t {
+    uint8_t dtr0;
+    uint8_t dtr1;
+    bool has_dtr0;
+    bool has_dtr1;
+};
 
 // Backward reply в DALI не содержит адреса устройства. Поэтому после
 // QUERY_ACTUAL_LEVEL запоминаем, к каким нашим устройствам относился запрос,
@@ -22,6 +30,7 @@ constexpr TickType_t kDaliReplyWaitAfterQueryTicks = pdMS_TO_TICKS(25);
 devices_api_device_match_t s_pending_brightness_matches[kMaxBrightnessMatches] = {};
 size_t s_pending_brightness_match_count = 0;
 bool s_has_pending_brightness_reply = false;
+dt8_color_temperature_context_t s_dt8_color_temperature = {};
 
 bool description_command_is(const dali_frame_description_t &description, const char *command_name)
 {
@@ -53,12 +62,38 @@ esp_err_t find_brightness_devices_for_description(const dali_frame_description_t
                                                match_count);
 }
 
+esp_err_t find_color_temperature_devices_for_description(const dali_frame_description_t &description,
+                                                         devices_api_device_match_t *matches,
+                                                         size_t max_matches,
+                                                         size_t *match_count)
+{
+    // Для CT scene-фильтр не нужен: DT8_SET_COLOUR_TEMP_TC адресуется напрямую
+    // short/group/broadcast target-у, который уже лежит в description.
+    return devices_api_find_color_temperature_devices(description.address_kind,
+                                                      description.has_address_value,
+                                                      description.address_value,
+                                                      false,
+                                                      0,
+                                                      matches,
+                                                      max_matches,
+                                                      match_count);
+}
+
 void publish_brightness_matches(const devices_api_device_match_t *matches, size_t match_count, uint8_t level)
 {
     // Payload brightness намеренно простой: raw DALI level как строковое число.
     // Формирование topic спрятано внутри mqtt_bridge.
     for (size_t i = 0; i < match_count; ++i) {
         mqtt_bridge_publish_device_brightness(matches[i].address, level);
+    }
+}
+
+void publish_color_temperature_matches(const devices_api_device_match_t *matches, size_t match_count, uint32_t kelvin)
+{
+    // Цветовую температуру публикуем так же просто, как brightness: plain number,
+    // но уже в привычных Kelvin, а не в DALI mired.
+    for (size_t i = 0; i < match_count; ++i) {
+        mqtt_bridge_publish_device_color_temperature(matches[i].address, kelvin);
     }
 }
 
@@ -164,6 +199,59 @@ void query_scene_brightness(const dali_frame_description_t &description)
     }
 }
 
+void remember_dt8_color_temperature_dtr(const dali_frame_description_t &description)
+{
+    if (!description.has_arg) {
+        return;
+    }
+
+    if (description_command_is(description, "DATA_TRANSFER_REGISTER0")) {
+        s_dt8_color_temperature.dtr0 = description.arg;
+        s_dt8_color_temperature.has_dtr0 = true;
+        return;
+    }
+
+    if (description_command_is(description, "DATA_TRANSFER_REGISTER1")) {
+        s_dt8_color_temperature.dtr1 = description.arg;
+        s_dt8_color_temperature.has_dtr1 = true;
+    }
+}
+
+uint32_t kelvin_from_mired(uint16_t mired)
+{
+    // Округляем до ближайшего Kelvin: mired=194 даст 5155K, а не 5154K.
+    return (kKelvinMiredNumerator + (mired / 2U)) / mired;
+}
+
+void publish_target_color_temperature(const dali_frame_description_t &description)
+{
+    if (!s_dt8_color_temperature.has_dtr0 || !s_dt8_color_temperature.has_dtr1) {
+        ESP_LOGW(kTag, "Skipping DT8 colour temperature without complete DTR0/DTR1 context");
+        return;
+    }
+
+    const uint16_t mired =
+        static_cast<uint16_t>((static_cast<uint16_t>(s_dt8_color_temperature.dtr1) << 8) |
+                              s_dt8_color_temperature.dtr0);
+    if (mired == 0) {
+        ESP_LOGW(kTag, "Skipping DT8 colour temperature with zero mired value");
+        return;
+    }
+
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxBrightnessMatches] = {};
+    const esp_err_t err = find_color_temperature_devices_for_description(description,
+                                                                         matches,
+                                                                         kMaxBrightnessMatches,
+                                                                         &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve colour temperature target: %s", esp_err_to_name(err));
+        return;
+    }
+
+    publish_color_temperature_matches(matches, match_count, kelvin_from_mired(mired));
+}
+
 }  // namespace
 
 void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_frame_description_t &description)
@@ -182,6 +270,14 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     clear_pending_brightness_reply();
 
+    // DTR0/DTR1 сами по себе не адресованы устройству. Они подготавливают
+    // 16-битное DT8 Tc значение для следующего DT8_SET_COLOUR_TEMP_TC.
+    if (description_command_is(description, "DATA_TRANSFER_REGISTER0") ||
+        description_command_is(description, "DATA_TRANSFER_REGISTER1")) {
+        remember_dt8_color_temperature_dtr(description);
+        return;
+    }
+
     // DAPC явно несёт уровень, а OFF в DALI является командой яркости 0.
     if (description_command_is(description, "DAPC") && description.has_level) {
         publish_target_brightness(description, description.level);
@@ -195,5 +291,10 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_command_is(description, "GO_TO_SCENE")) {
         query_scene_brightness(description);
+        return;
+    }
+
+    if (description_command_is(description, "DT8_SET_COLOUR_TEMP_TC")) {
+        publish_target_color_temperature(description);
     }
 }

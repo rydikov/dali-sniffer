@@ -551,14 +551,32 @@ esp_err_t devices_api_delete_handler(httpd_req_t *req)
     return httpd_resp_send(req, nullptr, 0);
 }
 
-esp_err_t devices_api_find_brightness_devices(const char *address_kind,
-                                              bool has_address_value,
-                                              int address_value,
-                                              bool require_scene,
-                                              uint8_t scene,
-                                              devices_api_device_match_t *matches,
-                                              size_t max_matches,
-                                              size_t *match_count)
+enum class DeviceCapability : uint8_t {
+    Brightness,
+    ColorTemperature,
+};
+
+static bool device_has_capability(const device_record_t &record, DeviceCapability capability)
+{
+    switch (capability) {
+    case DeviceCapability::Brightness:
+        return record.brightness;
+    case DeviceCapability::ColorTemperature:
+        return record.color_temperature;
+    }
+
+    return false;
+}
+
+static esp_err_t find_devices_by_capability(const char *address_kind,
+                                            bool has_address_value,
+                                            int address_value,
+                                            bool require_scene,
+                                            uint8_t scene,
+                                            DeviceCapability capability,
+                                            devices_api_device_match_t *matches,
+                                            size_t max_matches,
+                                            size_t *match_count)
 {
     if (address_kind == nullptr || matches == nullptr || match_count == nullptr || scene > 15) {
         return ESP_ERR_INVALID_ARG;
@@ -576,7 +594,7 @@ esp_err_t devices_api_find_brightness_devices(const char *address_kind,
 
     for (uint8_t address = 0; address < 64 && *match_count < max_matches; ++address) {
         device_record_t record = {};
-        if (!read_device(handle, address, &record) || !record.brightness) {
+        if (!read_device(handle, address, &record) || !device_has_capability(record, capability)) {
             continue;
         }
 
@@ -602,4 +620,44 @@ esp_err_t devices_api_find_brightness_devices(const char *address_kind,
 
     nvs_close(handle);
     return ESP_OK;
+}
+
+esp_err_t devices_api_find_brightness_devices(const char *address_kind,
+                                              bool has_address_value,
+                                              int address_value,
+                                              bool require_scene,
+                                              uint8_t scene,
+                                              devices_api_device_match_t *matches,
+                                              size_t max_matches,
+                                              size_t *match_count)
+{
+    return find_devices_by_capability(address_kind,
+                                      has_address_value,
+                                      address_value,
+                                      require_scene,
+                                      scene,
+                                      DeviceCapability::Brightness,
+                                      matches,
+                                      max_matches,
+                                      match_count);
+}
+
+esp_err_t devices_api_find_color_temperature_devices(const char *address_kind,
+                                                     bool has_address_value,
+                                                     int address_value,
+                                                     bool require_scene,
+                                                     uint8_t scene,
+                                                     devices_api_device_match_t *matches,
+                                                     size_t max_matches,
+                                                     size_t *match_count)
+{
+    return find_devices_by_capability(address_kind,
+                                      has_address_value,
+                                      address_value,
+                                      require_scene,
+                                      scene,
+                                      DeviceCapability::ColorTemperature,
+                                      matches,
+                                      max_matches,
+                                      match_count);
 }

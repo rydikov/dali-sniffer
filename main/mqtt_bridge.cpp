@@ -308,24 +308,38 @@ void mqtt_bridge_publish_command_result(const char *origin,
     cJSON_Delete(root);
 }
 
-void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level)
+static void publish_device_state_number(uint8_t address, const char *state_name, unsigned value)
 {
-    if (!s_enabled || !s_connected || s_client == nullptr || address > 63) {
+    if (!s_enabled || !s_connected || s_client == nullptr || address > 63 || state_name == nullptr) {
         return;
     }
 
     char topic[kTopicBufferSize] = {};
-    char payload[4] = {};
+    char payload[11] = {};
     const int topic_length = std::snprintf(topic,
                                            sizeof(topic),
-                                           "%s/device/%u/brightness",
+                                           "%s/device/%u/%s",
                                            s_root_topic,
-                                           static_cast<unsigned>(address));
+                                           static_cast<unsigned>(address),
+                                           state_name);
     if (topic_length < 0 || static_cast<size_t>(topic_length) >= sizeof(topic)) {
-        ESP_LOGW(kTag, "Brightness topic is too long for device %u", static_cast<unsigned>(address));
+        ESP_LOGW(kTag,
+                 "Device state topic is too long for device %u state %s",
+                 static_cast<unsigned>(address),
+                 state_name);
         return;
     }
 
-    std::snprintf(payload, sizeof(payload), "%u", static_cast<unsigned>(level));
+    std::snprintf(payload, sizeof(payload), "%u", value);
     esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 0);
+}
+
+void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level)
+{
+    publish_device_state_number(address, "brightness", static_cast<unsigned>(level));
+}
+
+void mqtt_bridge_publish_device_color_temperature(uint8_t address, uint32_t kelvin)
+{
+    publish_device_state_number(address, "color_temperature", static_cast<unsigned>(kelvin));
 }

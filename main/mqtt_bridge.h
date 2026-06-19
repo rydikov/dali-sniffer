@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 #include "dali_protocol.h"
 #include "dali_sniffer.h"
 #include "esp_err.h"
@@ -12,3 +14,4 @@ void mqtt_bridge_publish_command_result(const char *origin,
                                         const char *command_text,
                                         const dali_command_exec_result_t &result);
 void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level);
+void mqtt_bridge_publish_device_color_temperature(uint8_t address, uint32_t kelvin);

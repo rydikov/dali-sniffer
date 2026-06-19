@@ -433,7 +433,7 @@ button:disabled {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 16px 0;
+  padding: 16px 0 0;
 }
 
 .dialog-header h2 {

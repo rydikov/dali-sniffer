@@ -510,6 +510,11 @@ select {
   cursor: pointer;
 }
 
+select:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .check-row,
 .check-tile {
   display: inline-flex;
@@ -697,6 +702,27 @@ input[type="checkbox"] {
   font-size: 14px;
   font-weight: 600;
   line-height: 1.35;
+}
+
+.device-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.compact-button {
+  min-width: 72px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.danger-button {
+  color: #ffd8dc;
+}
+
+.danger-button:hover {
+  background: #4b2f39;
 }
 
 .devices-empty {

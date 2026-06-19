@@ -5,3 +5,5 @@
 
 esp_err_t devices_api_get_handler(httpd_req_t *req);
 esp_err_t devices_api_post_handler(httpd_req_t *req);
+esp_err_t devices_api_put_handler(httpd_req_t *req);
+esp_err_t devices_api_delete_handler(httpd_req_t *req);

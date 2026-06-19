@@ -368,6 +368,16 @@ extern "C" esp_err_t web_server_start(void)
     devices_api_post_uri.method = HTTP_POST;
     devices_api_post_uri.handler = devices_api_post_handler;
 
+    httpd_uri_t devices_api_put_uri = {};
+    devices_api_put_uri.uri = "/api/devices/*";
+    devices_api_put_uri.method = HTTP_PUT;
+    devices_api_put_uri.handler = devices_api_put_handler;
+
+    httpd_uri_t devices_api_delete_uri = {};
+    devices_api_delete_uri.uri = "/api/devices/*";
+    devices_api_delete_uri.method = HTTP_DELETE;
+    devices_api_delete_uri.handler = devices_api_delete_handler;
+
     httpd_uri_t assets_uri = {};
     assets_uri.uri = "/assets/*";
     assets_uri.method = HTTP_GET;
@@ -387,6 +397,8 @@ extern "C" esp_err_t web_server_start(void)
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &ws_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_get_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_post_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_put_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_delete_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &index_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &assets_uri));

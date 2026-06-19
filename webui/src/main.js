@@ -28,6 +28,7 @@ const deviceGroupsEl = document.getElementById('device-groups');
 const deviceScenesEl = document.getElementById('device-scenes');
 const devicesStatusEl = document.getElementById('devices-status');
 const deviceFormStatusEl = document.getElementById('device-form-status');
+const deviceDialogTitleEl = document.getElementById('device-dialog-title');
 const openDeviceDialogEl = document.getElementById('open-device-dialog');
 const closeDeviceDialogEl = document.getElementById('close-device-dialog');
 const cancelDeviceButtonEl = document.getElementById('cancel-device-button');
@@ -37,6 +38,7 @@ const devicesCountEl = document.getElementById('devices-count');
 let isPaused = false;
 let isConsoleInitialized = false;
 let isDevicesInitialized = false;
+let editingDeviceAddress = null;
 let devices = [];
 
 function pushMessage(kind, body) {
@@ -221,11 +223,17 @@ function initDevices() {
 
   deviceFormEl.addEventListener('submit', async (event) => {
     event.preventDefault();
-    await createDevice(readDeviceForm());
+    const device = readDeviceForm();
+    if (editingDeviceAddress === null) {
+      await createDevice(device);
+      return;
+    }
+
+    await updateDevice(device);
   });
 
   openDeviceDialogEl.addEventListener('click', () => {
-    openDeviceDialog();
+    openCreateDeviceDialog();
   });
   closeDeviceDialogEl.addEventListener('click', () => {
     closeDeviceDialog();
@@ -253,7 +261,26 @@ function openDeviceDialog() {
     deviceDialogEl.setAttribute('open', '');
   }
 
-  deviceAddressEl.focus();
+  const focusTarget = deviceAddressEl.disabled ? deviceBrightnessEl : deviceAddressEl;
+  focusTarget.focus();
+}
+
+function openCreateDeviceDialog() {
+  editingDeviceAddress = null;
+  resetDeviceForm();
+  deviceAddressEl.disabled = false;
+  deviceDialogTitleEl.textContent = 'New device';
+  addDeviceButtonEl.textContent = 'Add';
+  openDeviceDialog();
+}
+
+function openEditDeviceDialog(device) {
+  editingDeviceAddress = device.address;
+  setDeviceForm(device);
+  deviceAddressEl.disabled = true;
+  deviceDialogTitleEl.textContent = `Edit address ${device.address}`;
+  addDeviceButtonEl.textContent = 'Save';
+  openDeviceDialog();
 }
 
 function closeDeviceDialog() {
@@ -267,6 +294,13 @@ function closeDeviceDialog() {
 
 function getCheckedNumbers(name) {
   return Array.from(deviceFormEl.querySelectorAll(`input[name="${name}"]:checked`)).map((input) => Number(input.value));
+}
+
+function setCheckedNumbers(name, values) {
+  const selected = new Set(Array.isArray(values) ? values.map((value) => Number(value)) : []);
+  for (const input of deviceFormEl.querySelectorAll(`input[name="${name}"]`)) {
+    input.checked = selected.has(Number(input.value));
+  }
 }
 
 function readDeviceForm() {
@@ -283,6 +317,18 @@ function readDeviceForm() {
 function resetDeviceForm() {
   deviceFormEl.reset();
   deviceAddressEl.value = '0';
+  setCheckedNumbers('groups', []);
+  setCheckedNumbers('scenes', []);
+}
+
+function setDeviceForm(device) {
+  resetDeviceForm();
+  deviceAddressEl.value = String(device.address);
+  deviceBrightnessEl.checked = Boolean(device.brightness);
+  deviceColorTemperatureEl.checked = Boolean(device.colorTemperature);
+  deviceRgbwEl.checked = Boolean(device.rgbw);
+  setCheckedNumbers('groups', device.groups);
+  setCheckedNumbers('scenes', device.scenes);
 }
 
 function capabilityLabels(device) {
@@ -320,12 +366,29 @@ function renderDeviceCard(device) {
   const header = document.createElement('div');
   const title = document.createElement('h3');
   const meta = document.createElement('div');
+  const actions = document.createElement('div');
+  const editButton = document.createElement('button');
+  const deleteButton = document.createElement('button');
   const capabilities = capabilityLabels(device);
 
   card.className = 'device-card';
   header.className = 'device-card-header';
   meta.className = 'device-card-meta';
   title.textContent = `Address ${device.address}`;
+  actions.className = 'device-card-actions';
+  editButton.className = 'secondary-button compact-button';
+  editButton.type = 'button';
+  editButton.textContent = 'Edit';
+  deleteButton.className = 'secondary-button compact-button danger-button';
+  deleteButton.type = 'button';
+  deleteButton.textContent = 'Delete';
+  editButton.addEventListener('click', () => {
+    openEditDeviceDialog(device);
+  });
+  deleteButton.addEventListener('click', () => {
+    deleteDevice(device.address);
+  });
+  actions.append(editButton, deleteButton);
 
   header.append(createLampIcon(), title);
 
@@ -346,7 +409,7 @@ function renderDeviceCard(device) {
     meta.appendChild(row);
   }
 
-  card.append(header, meta);
+  card.append(header, meta, actions);
   return card;
 }
 
@@ -422,6 +485,74 @@ async function createDevice(device) {
     setDeviceFormStatus('Failed to send request.', 'error');
   } finally {
     addDeviceButtonEl.disabled = false;
+  }
+}
+
+async function updateDevice(device) {
+  addDeviceButtonEl.disabled = true;
+  setDeviceFormStatus('Saving device...', 'info');
+
+  try {
+    const response = await fetch(`/api/devices/${device.address}`, {
+      method: 'PUT',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(device)
+    });
+
+    if (response.status === 404) {
+      setDeviceFormStatus('Device was not found.', 'error');
+      return;
+    }
+    if (!response.ok) {
+      setDeviceFormStatus('Failed to save device.', 'error');
+      return;
+    }
+
+    const payload = await response.json();
+    if (payload.device) {
+      devices = devices.map((item) => (item.address === payload.device.address ? payload.device : item));
+      renderDevices();
+    }
+
+    closeDeviceDialog();
+    setDevicesStatus('Device updated.', 'success');
+  } catch {
+    setDeviceFormStatus('Failed to send request.', 'error');
+  } finally {
+    addDeviceButtonEl.disabled = false;
+  }
+}
+
+async function deleteDevice(address) {
+  if (!window.confirm(`Delete device at address ${address}?`)) {
+    return;
+  }
+
+  setDevicesStatus('Deleting device...', 'info');
+
+  try {
+    const response = await fetch(`/api/devices/${address}`, {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' }
+    });
+
+    if (response.status === 404) {
+      setDevicesStatus('Device was not found.', 'error');
+      return;
+    }
+    if (!response.ok) {
+      setDevicesStatus('Failed to delete device.', 'error');
+      return;
+    }
+
+    devices = devices.filter((device) => device.address !== address);
+    renderDevices();
+    setDevicesStatus('Device deleted.', 'success');
+  } catch {
+    setDevicesStatus('Failed to send request.', 'error');
   }
 }
 

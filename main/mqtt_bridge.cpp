@@ -307,3 +307,25 @@ void mqtt_bridge_publish_command_result(const char *origin,
     publish_json(s_command_result_topic, root);
     cJSON_Delete(root);
 }
+
+void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level)
+{
+    if (!s_enabled || !s_connected || s_client == nullptr || address > 63) {
+        return;
+    }
+
+    char topic[kTopicBufferSize] = {};
+    char payload[4] = {};
+    const int topic_length = std::snprintf(topic,
+                                           sizeof(topic),
+                                           "%s/device/%u/brightness",
+                                           s_root_topic,
+                                           static_cast<unsigned>(address));
+    if (topic_length < 0 || static_cast<size_t>(topic_length) >= sizeof(topic)) {
+        ESP_LOGW(kTag, "Brightness topic is too long for device %u", static_cast<unsigned>(address));
+        return;
+    }
+
+    std::snprintf(payload, sizeof(payload), "%u", static_cast<unsigned>(level));
+    esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 0);
+}

@@ -550,3 +550,56 @@ esp_err_t devices_api_delete_handler(httpd_req_t *req)
     // Для 204 тело ответа не отправляем.
     return httpd_resp_send(req, nullptr, 0);
 }
+
+esp_err_t devices_api_find_brightness_devices(const char *address_kind,
+                                              bool has_address_value,
+                                              int address_value,
+                                              bool require_scene,
+                                              uint8_t scene,
+                                              devices_api_device_match_t *matches,
+                                              size_t max_matches,
+                                              size_t *match_count)
+{
+    if (address_kind == nullptr || matches == nullptr || match_count == nullptr || scene > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    *match_count = 0;
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open(kDevicesNamespace, NVS_READONLY, &handle);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        return ESP_OK;
+    }
+    if (err != ESP_OK) {
+        return err;
+    }
+
+    for (uint8_t address = 0; address < 64 && *match_count < max_matches; ++address) {
+        device_record_t record = {};
+        if (!read_device(handle, address, &record) || !record.brightness) {
+            continue;
+        }
+
+        if (require_scene && (record.scenes_mask & (1U << scene)) == 0U) {
+            continue;
+        }
+
+        bool matched = false;
+        if (std::strcmp(address_kind, "short") == 0) {
+            matched = has_address_value && address_value == record.address;
+        } else if (std::strcmp(address_kind, "group") == 0) {
+            matched = has_address_value && address_value >= 0 && address_value <= 15 &&
+                      (record.groups_mask & (1U << static_cast<uint8_t>(address_value))) != 0U;
+        } else if (std::strcmp(address_kind, "broadcast") == 0) {
+            matched = true;
+        }
+
+        if (matched) {
+            matches[*match_count].address = record.address;
+            *match_count = *match_count + 1;
+        }
+    }
+
+    nvs_close(handle);
+    return ESP_OK;
+}

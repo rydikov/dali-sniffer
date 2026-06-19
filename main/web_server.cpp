@@ -10,6 +10,7 @@ extern "C" {
 }
 
 #include "dali_protocol.h"
+#include "dali_state_sync.h"
 #include "dali_sniffer.h"
 #include "devices_api.h"
 #include "mqtt_bridge.h"
@@ -194,11 +195,13 @@ void broadcast_message(const dali_frame_event_t &frame)
     int client_fds[CONFIG_LWIP_MAX_SOCKETS];
     size_t clients = CONFIG_LWIP_MAX_SOCKETS;
 
+    dali_describe_frame(frame, &description);
+    dali_state_sync_handle_frame(frame, description);
+
     if (s_server == nullptr) {
         return;
     }
 
-    dali_describe_frame(frame, &description);
     payload = build_json_string_message("message", description.text);
     if (payload == nullptr) {
         ESP_LOGW(kTag, "Failed to build broadcast JSON payload");

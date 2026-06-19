@@ -11,3 +11,4 @@ void mqtt_bridge_publish_command_request(const char *origin, const char *command
 void mqtt_bridge_publish_command_result(const char *origin,
                                         const char *command_text,
                                         const dali_command_exec_result_t &result);
+void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level);

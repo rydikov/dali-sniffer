@@ -766,7 +766,7 @@ input[type="checkbox"] {
   }
 
   .topbar {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .status {

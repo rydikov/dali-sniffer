@@ -98,6 +98,8 @@ bool description_is_relative_brightness_command(const dali_frame_description_t &
            description_command_is(description, "DOWN") ||
            description_command_is(description, "STEP_UP") ||
            description_command_is(description, "STEP_DOWN") ||
+           description_command_is(description, "RECALL_MAX_LEVEL") ||
+           description_command_is(description, "RECALL_MIN_LEVEL") ||
            description_command_is(description, "ON_AND_STEP_UP") ||
            description_command_is(description, "STEP_DOWN_AND_OFF") ||
            description_command_is(description, "GO_TO_LAST_ACTIVE_LEVEL");

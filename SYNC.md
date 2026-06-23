@@ -57,6 +57,8 @@ Follow-up query выполняется для:
 - `DOWN`
 - `STEP_UP`
 - `STEP_DOWN`
+- `RECALL_MAX_LEVEL`
+- `RECALL_MIN_LEVEL`
 - `ON_AND_STEP_UP`
 - `STEP_DOWN_AND_OFF`
 - `GO_TO_LAST_ACTIVE_LEVEL`

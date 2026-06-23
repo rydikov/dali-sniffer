@@ -43,6 +43,18 @@ void clear_pending_brightness_reply()
     s_pending_brightness_match_count = 0;
 }
 
+void record_pending_brightness_reply(const devices_api_device_match_t *matches, size_t match_count)
+{
+    if (match_count == 0) {
+        clear_pending_brightness_reply();
+        return;
+    }
+
+    std::memcpy(s_pending_brightness_matches, matches, sizeof(matches[0]) * match_count);
+    s_pending_brightness_match_count = match_count;
+    s_has_pending_brightness_reply = true;
+}
+
 esp_err_t find_brightness_devices_for_description(const dali_frame_description_t &description,
                                                   bool require_scene,
                                                   uint8_t scene,
@@ -120,9 +132,7 @@ void remember_query_actual_level_target(const dali_frame_description_t &descript
         return;
     }
 
-    std::memcpy(s_pending_brightness_matches, matches, sizeof(matches[0]) * match_count);
-    s_pending_brightness_match_count = match_count;
-    s_has_pending_brightness_reply = true;
+    record_pending_brightness_reply(matches, match_count);
 }
 
 void publish_pending_brightness_reply(const dali_frame_event_t &frame)
@@ -183,6 +193,12 @@ void query_scene_brightness(const dali_frame_description_t &description)
     // дал реальное состояние brightness.
     for (size_t i = 0; i < match_count; ++i) {
         const uint8_t address_byte = static_cast<uint8_t>((matches[i].address << 1) | 0x01);
+
+        // Backward reply не содержит адреса, поэтому перед каждым follow-up
+        // QUERY_ACTUAL_LEVEL запоминаем ровно то устройство, которое сейчас
+        // опрашиваем после GO_TO_SCENE.
+        record_pending_brightness_reply(&matches[i], 1);
+
         const esp_err_t send_err = dali_sniffer_send_frame(address_byte, kDaliQueryActualLevel);
         if (send_err != ESP_OK) {
             ESP_LOGW(kTag,
@@ -190,6 +206,7 @@ void query_scene_brightness(const dali_frame_description_t &description)
                      static_cast<unsigned>(matches[i].address),
                      static_cast<unsigned>(description.command_index),
                      esp_err_to_name(send_err));
+            clear_pending_brightness_reply();
             continue;
         }
 

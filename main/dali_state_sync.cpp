@@ -12,10 +12,25 @@
 namespace {
 
 constexpr const char *kTag = "dali_state_sync";
-constexpr size_t kMaxBrightnessMatches = 64;
+constexpr size_t kMaxDeviceMatches = 64;
 constexpr uint8_t kDaliQueryActualLevel = 0xA0;
 constexpr uint32_t kKelvinMiredNumerator = 1000000UL;
 constexpr TickType_t kDaliReplyWaitAfterQueryTicks = pdMS_TO_TICKS(25);
+
+enum class pending_reply_kind_t : uint8_t {
+    None,
+    Brightness,
+    ColorTemperatureHigh,
+    ColorTemperatureLow,
+    RgbwChannel,
+};
+
+enum class rgbw_channel_t : uint8_t {
+    Red,
+    Green,
+    Blue,
+    White,
+};
 
 struct dt8_color_temperature_context_t {
     uint8_t dtr0;
@@ -24,35 +39,96 @@ struct dt8_color_temperature_context_t {
     bool has_dtr1;
 };
 
+struct pending_reply_context_t {
+    pending_reply_kind_t kind;
+    devices_api_device_match_t matches[kMaxDeviceMatches];
+    size_t match_count;
+    uint8_t color_temperature_high;
+    rgbw_channel_t rgbw_channel;
+};
+
 // Backward reply в DALI не содержит адреса устройства. Поэтому после
-// QUERY_ACTUAL_LEVEL запоминаем, к каким нашим устройствам относился запрос,
-// и следующий reply трактуем как уровень яркости именно для них.
-devices_api_device_match_t s_pending_brightness_matches[kMaxBrightnessMatches] = {};
-size_t s_pending_brightness_match_count = 0;
-bool s_has_pending_brightness_reply = false;
+// query запоминаем, к каким нашим устройствам относился запрос, и следующий
+// reply трактуем в контексте именно этой команды.
+pending_reply_context_t s_pending_reply = {};
 dt8_color_temperature_context_t s_dt8_color_temperature = {};
+uint8_t s_dt8_query_colour_value_index = 0;
+bool s_has_dt8_query_colour_value_index = false;
 
 bool description_command_is(const dali_frame_description_t &description, const char *command_name)
 {
     return description.has_command_name && std::strcmp(description.command_name, command_name) == 0;
 }
 
-void clear_pending_brightness_reply()
+uint32_t kelvin_from_mired(uint16_t mired);
+
+bool description_is_dt8_query_colour_value(const dali_frame_description_t &description)
 {
-    s_has_pending_brightness_reply = false;
-    s_pending_brightness_match_count = 0;
+    if (description_command_is(description, "DT8_QUERY_COLOUR_VALUE")) {
+        return true;
+    }
+
+    // Некоторые внешние DALI-декодеры показывают QueryColourValue на opcode
+    // 0xFA. Оставляем эту ветку, чтобы корректно привязать реальные ответы
+    // из шины даже если локальная таблица имён считает 0xFA другой командой.
+    return description.bit_length == 16 && (description.raw_value & 0xFFU) == 0xFAU;
 }
 
-void record_pending_brightness_reply(const devices_api_device_match_t *matches, size_t match_count)
+bool description_has_addressed_target(const dali_frame_description_t &description)
 {
-    if (match_count == 0) {
-        clear_pending_brightness_reply();
+    return std::strcmp(description.address_kind, "short") == 0 ||
+           std::strcmp(description.address_kind, "group") == 0 ||
+           std::strcmp(description.address_kind, "broadcast") == 0;
+}
+
+bool description_is_arc_power_level(const dali_frame_description_t &description)
+{
+    if (!description.has_level || !description_has_addressed_target(description)) {
+        return false;
+    }
+
+    return description_command_is(description, "DAPC") ||
+           description_command_is(description, "ARC_POWER") ||
+           description_command_is(description, "ArcPower");
+}
+
+bool description_is_relative_brightness_command(const dali_frame_description_t &description)
+{
+    return description_command_is(description, "UP") ||
+           description_command_is(description, "DOWN") ||
+           description_command_is(description, "STEP_UP") ||
+           description_command_is(description, "STEP_DOWN") ||
+           description_command_is(description, "RECALL_MAX_LEVEL") ||
+           description_command_is(description, "RECALL_MIN_LEVEL") ||
+           description_command_is(description, "ON_AND_STEP_UP") ||
+           description_command_is(description, "STEP_DOWN_AND_OFF") ||
+           description_command_is(description, "GO_TO_LAST_ACTIVE_LEVEL");
+}
+
+void clear_pending_reply()
+{
+    s_pending_reply.kind = pending_reply_kind_t::None;
+    s_pending_reply.match_count = 0;
+    s_pending_reply.color_temperature_high = 0;
+    s_pending_reply.rgbw_channel = rgbw_channel_t::Red;
+}
+
+void record_pending_reply(pending_reply_kind_t kind,
+                          const devices_api_device_match_t *matches,
+                          size_t match_count,
+                          uint8_t color_temperature_high = 0,
+                          rgbw_channel_t rgbw_channel = rgbw_channel_t::Red)
+{
+    if (kind == pending_reply_kind_t::None || match_count == 0) {
+        clear_pending_reply();
         return;
     }
 
-    std::memcpy(s_pending_brightness_matches, matches, sizeof(matches[0]) * match_count);
-    s_pending_brightness_match_count = match_count;
-    s_has_pending_brightness_reply = true;
+    std::memcpy(s_pending_reply.matches, matches, sizeof(matches[0]) * match_count);
+    s_pending_reply.match_count = match_count;
+    s_pending_reply.color_temperature_high = color_temperature_high;
+    s_pending_reply.rgbw_channel = rgbw_channel;
+    s_pending_reply.kind = kind;
 }
 
 esp_err_t find_brightness_devices_for_description(const dali_frame_description_t &description,
@@ -91,12 +167,50 @@ esp_err_t find_color_temperature_devices_for_description(const dali_frame_descri
                                                       match_count);
 }
 
+esp_err_t find_rgbw_devices_for_description(const dali_frame_description_t &description,
+                                            devices_api_device_match_t *matches,
+                                            size_t max_matches,
+                                            size_t *match_count)
+{
+    return devices_api_find_rgbw_devices(description.address_kind,
+                                         description.has_address_value,
+                                         description.address_value,
+                                         false,
+                                         0,
+                                         matches,
+                                         max_matches,
+                                         match_count);
+}
+
 void publish_brightness_matches(const devices_api_device_match_t *matches, size_t match_count, uint8_t level)
 {
     // Payload brightness намеренно простой: raw DALI level как строковое число.
     // Формирование topic спрятано внутри mqtt_bridge.
     for (size_t i = 0; i < match_count; ++i) {
         mqtt_bridge_publish_device_brightness(matches[i].address, level);
+    }
+}
+
+void publish_rgbw_matches(const devices_api_device_match_t *matches,
+                          size_t match_count,
+                          rgbw_channel_t channel,
+                          uint8_t level)
+{
+    for (size_t i = 0; i < match_count; ++i) {
+        switch (channel) {
+        case rgbw_channel_t::Red:
+            mqtt_bridge_publish_device_red(matches[i].address, level);
+            break;
+        case rgbw_channel_t::Green:
+            mqtt_bridge_publish_device_green(matches[i].address, level);
+            break;
+        case rgbw_channel_t::Blue:
+            mqtt_bridge_publish_device_blue(matches[i].address, level);
+            break;
+        case rgbw_channel_t::White:
+            mqtt_bridge_publish_device_white(matches[i].address, level);
+            break;
+        }
     }
 }
 
@@ -112,52 +226,143 @@ void publish_color_temperature_matches(const devices_api_device_match_t *matches
 void remember_query_actual_level_target(const dali_frame_description_t &description)
 {
     size_t match_count = 0;
-    devices_api_device_match_t matches[kMaxBrightnessMatches] = {};
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
     const esp_err_t err = find_brightness_devices_for_description(description,
                                                                   false,
                                                                   0,
                                                                   matches,
-                                                                  kMaxBrightnessMatches,
+                                                                  kMaxDeviceMatches,
                                                                   &match_count);
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "Failed to resolve QUERY_ACTUAL_LEVEL target: %s", esp_err_to_name(err));
-        clear_pending_brightness_reply();
+        clear_pending_reply();
         return;
     }
 
     if (match_count == 0) {
         // Если запрос не относится к сохранённым brightness-устройствам,
         // следующий reply нам не нужен.
-        clear_pending_brightness_reply();
+        clear_pending_reply();
         return;
     }
 
-    record_pending_brightness_reply(matches, match_count);
+    record_pending_reply(pending_reply_kind_t::Brightness, matches, match_count);
 }
 
-void publish_pending_brightness_reply(const dali_frame_event_t &frame)
+void remember_dt8_query_colour_value_target(const dali_frame_description_t &description)
 {
-    if (!s_has_pending_brightness_reply) {
+    if (!s_has_dt8_query_colour_value_index) {
+        clear_pending_reply();
         return;
     }
 
-    // Backward frame несёт только один байт данных; для QUERY_ACTUAL_LEVEL это
-    // фактическая яркость устройства.
-    publish_brightness_matches(s_pending_brightness_matches,
-                               s_pending_brightness_match_count,
-                               static_cast<uint8_t>(frame.data & 0xFF));
-    clear_pending_brightness_reply();
+    if (s_dt8_query_colour_value_index == 2) {
+        size_t match_count = 0;
+        devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+        const esp_err_t err =
+            find_color_temperature_devices_for_description(description, matches, kMaxDeviceMatches, &match_count);
+        if (err != ESP_OK) {
+            ESP_LOGW(kTag, "Failed to resolve DT8 colour temperature query target: %s", esp_err_to_name(err));
+            clear_pending_reply();
+            return;
+        }
+
+        record_pending_reply(pending_reply_kind_t::ColorTemperatureHigh, matches, match_count);
+        return;
+    }
+
+    rgbw_channel_t channel = rgbw_channel_t::Red;
+    bool has_channel = true;
+    switch (s_dt8_query_colour_value_index) {
+    case 9:
+        channel = rgbw_channel_t::Red;
+        break;
+    case 10:
+        channel = rgbw_channel_t::Green;
+        break;
+    case 11:
+        channel = rgbw_channel_t::Blue;
+        break;
+    case 12:
+        channel = rgbw_channel_t::White;
+        break;
+    default:
+        has_channel = false;
+        break;
+    }
+
+    if (!has_channel) {
+        clear_pending_reply();
+        return;
+    }
+
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_rgbw_devices_for_description(description, matches, kMaxDeviceMatches, &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve DT8 RGBW query target: %s", esp_err_to_name(err));
+        clear_pending_reply();
+        return;
+    }
+
+    record_pending_reply(pending_reply_kind_t::RgbwChannel, matches, match_count, 0, channel);
+}
+
+void remember_query_content_dtr_target()
+{
+    if (s_pending_reply.kind != pending_reply_kind_t::ColorTemperatureHigh ||
+        s_pending_reply.match_count == 0) {
+        clear_pending_reply();
+        return;
+    }
+
+    s_pending_reply.kind = pending_reply_kind_t::ColorTemperatureLow;
+}
+
+void publish_pending_reply(const dali_frame_event_t &frame)
+{
+    if (s_pending_reply.kind == pending_reply_kind_t::None) {
+        return;
+    }
+
+    const uint8_t value = static_cast<uint8_t>(frame.data & 0xFF);
+    switch (s_pending_reply.kind) {
+    case pending_reply_kind_t::Brightness:
+        publish_brightness_matches(s_pending_reply.matches, s_pending_reply.match_count, value);
+        clear_pending_reply();
+        return;
+    case pending_reply_kind_t::ColorTemperatureHigh:
+        s_pending_reply.color_temperature_high = value;
+        return;
+    case pending_reply_kind_t::ColorTemperatureLow: {
+        const uint16_t mired =
+            static_cast<uint16_t>((static_cast<uint16_t>(s_pending_reply.color_temperature_high) << 8) | value);
+        if (mired != 0) {
+            publish_color_temperature_matches(s_pending_reply.matches,
+                                              s_pending_reply.match_count,
+                                              kelvin_from_mired(mired));
+        }
+        clear_pending_reply();
+        return;
+    }
+    case pending_reply_kind_t::RgbwChannel:
+        publish_rgbw_matches(s_pending_reply.matches, s_pending_reply.match_count, s_pending_reply.rgbw_channel, value);
+        clear_pending_reply();
+        return;
+    case pending_reply_kind_t::None:
+        return;
+    }
 }
 
 void publish_target_brightness(const dali_frame_description_t &description, uint8_t level)
 {
     size_t match_count = 0;
-    devices_api_device_match_t matches[kMaxBrightnessMatches] = {};
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
     const esp_err_t err = find_brightness_devices_for_description(description,
                                                                   false,
                                                                   0,
                                                                   matches,
-                                                                  kMaxBrightnessMatches,
+                                                                  kMaxDeviceMatches,
                                                                   &match_count);
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "Failed to resolve brightness target: %s", esp_err_to_name(err));
@@ -169,44 +374,26 @@ void publish_target_brightness(const dali_frame_description_t &description, uint
     publish_brightness_matches(matches, match_count, level);
 }
 
-void query_scene_brightness(const dali_frame_description_t &description)
+void query_brightness_matches(const devices_api_device_match_t *matches,
+                              size_t match_count,
+                              const char *reason)
 {
-    if (!description.has_command_index || description.command_index > 15) {
-        return;
-    }
-
-    size_t match_count = 0;
-    devices_api_device_match_t matches[kMaxBrightnessMatches] = {};
-    const esp_err_t err = find_brightness_devices_for_description(description,
-                                                                  true,
-                                                                  description.command_index,
-                                                                  matches,
-                                                                  kMaxBrightnessMatches,
-                                                                  &match_count);
-    if (err != ESP_OK) {
-        ESP_LOGW(kTag, "Failed to resolve GO_TO_SCENE target: %s", esp_err_to_name(err));
-        return;
-    }
-
-    // GO_TO_SCENE сам не содержит уровня яркости. Для каждого подходящего
-    // устройства отправляем short QUERY_ACTUAL_LEVEL, чтобы последующий reply
-    // дал реальное состояние brightness.
     for (size_t i = 0; i < match_count; ++i) {
         const uint8_t address_byte = static_cast<uint8_t>((matches[i].address << 1) | 0x01);
 
         // Backward reply не содержит адреса, поэтому перед каждым follow-up
         // QUERY_ACTUAL_LEVEL запоминаем ровно то устройство, которое сейчас
-        // опрашиваем после GO_TO_SCENE.
-        record_pending_brightness_reply(&matches[i], 1);
+        // опрашиваем.
+        record_pending_reply(pending_reply_kind_t::Brightness, &matches[i], 1);
 
         const esp_err_t send_err = dali_sniffer_send_frame(address_byte, kDaliQueryActualLevel);
         if (send_err != ESP_OK) {
             ESP_LOGW(kTag,
-                     "Failed to query brightness for device %u after scene %u: %s",
+                     "Failed to query brightness for device %u after %s: %s",
                      static_cast<unsigned>(matches[i].address),
-                     static_cast<unsigned>(description.command_index),
+                     reason != nullptr ? reason : "brightness command",
                      esp_err_to_name(send_err));
-            clear_pending_brightness_reply();
+            clear_pending_reply();
             continue;
         }
 
@@ -214,6 +401,48 @@ void query_scene_brightness(const dali_frame_description_t &description)
         // устройство успеет ответить на предыдущий.
         vTaskDelay(kDaliReplyWaitAfterQueryTicks);
     }
+}
+
+void query_scene_brightness(const dali_frame_description_t &description)
+{
+    if (!description.has_command_index || description.command_index > 15) {
+        return;
+    }
+
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_brightness_devices_for_description(description,
+                                                                  true,
+                                                                  description.command_index,
+                                                                  matches,
+                                                                  kMaxDeviceMatches,
+                                                                  &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve GO_TO_SCENE target: %s", esp_err_to_name(err));
+        return;
+    }
+
+    query_brightness_matches(matches, match_count, "GO_TO_SCENE");
+}
+
+void query_relative_brightness(const dali_frame_description_t &description)
+{
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_brightness_devices_for_description(description,
+                                                                  false,
+                                                                  0,
+                                                                  matches,
+                                                                  kMaxDeviceMatches,
+                                                                  &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve relative brightness target: %s", esp_err_to_name(err));
+        return;
+    }
+
+    query_brightness_matches(matches,
+                             match_count,
+                             description.has_command_name ? description.command_name : "relative brightness command");
 }
 
 void remember_dt8_color_temperature_dtr(const dali_frame_description_t &description)
@@ -225,6 +454,8 @@ void remember_dt8_color_temperature_dtr(const dali_frame_description_t &descript
     if (description_command_is(description, "DATA_TRANSFER_REGISTER0")) {
         s_dt8_color_temperature.dtr0 = description.arg;
         s_dt8_color_temperature.has_dtr0 = true;
+        s_dt8_query_colour_value_index = description.arg;
+        s_has_dt8_query_colour_value_index = true;
         return;
     }
 
@@ -256,10 +487,10 @@ void publish_target_color_temperature(const dali_frame_description_t &descriptio
     }
 
     size_t match_count = 0;
-    devices_api_device_match_t matches[kMaxBrightnessMatches] = {};
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
     const esp_err_t err = find_color_temperature_devices_for_description(description,
                                                                          matches,
-                                                                         kMaxBrightnessMatches,
+                                                                         kMaxDeviceMatches,
                                                                          &match_count);
     if (err != ESP_OK) {
         ESP_LOGW(kTag, "Failed to resolve colour temperature target: %s", esp_err_to_name(err));
@@ -276,7 +507,7 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
     // Единая точка синхронизации DALI-трафика с MQTT state topics. WebSocket UI
     // остаётся в web_server, а device-state логика живёт здесь.
     if (description.is_backward_frame) {
-        publish_pending_brightness_reply(frame);
+        publish_pending_reply(frame);
         return;
     }
 
@@ -285,18 +516,29 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
         return;
     }
 
-    clear_pending_brightness_reply();
+    if (description_is_dt8_query_colour_value(description)) {
+        remember_dt8_query_colour_value_target(description);
+        return;
+    }
+
+    if (description_command_is(description, "QUERY_CONTENT_DTR")) {
+        remember_query_content_dtr_target();
+        return;
+    }
+
+    clear_pending_reply();
 
     // DTR0/DTR1 сами по себе не адресованы устройству. Они подготавливают
-    // 16-битное DT8 Tc значение для следующего DT8_SET_COLOUR_TEMP_TC.
+    // 16-битное DT8 Tc значение для следующего DT8_SET_COLOUR_TEMP_TC. При
+    // query-последовательностях DTR0 также выбирает DT8 colour value index.
     if (description_command_is(description, "DATA_TRANSFER_REGISTER0") ||
         description_command_is(description, "DATA_TRANSFER_REGISTER1")) {
         remember_dt8_color_temperature_dtr(description);
         return;
     }
 
-    // DAPC явно несёт уровень, а OFF в DALI является командой яркости 0.
-    if (description_command_is(description, "DAPC") && description.has_level) {
+    // DAPC/ArcPower явно несёт raw DALI уровень яркости.
+    if (description_is_arc_power_level(description)) {
         publish_target_brightness(description, description.level);
         return;
     }
@@ -308,6 +550,11 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_command_is(description, "GO_TO_SCENE")) {
         query_scene_brightness(description);
+        return;
+    }
+
+    if (description_is_relative_brightness_command(description)) {
+        query_relative_brightness(description);
         return;
     }
 

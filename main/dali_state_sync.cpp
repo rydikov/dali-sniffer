@@ -49,13 +49,15 @@ struct pending_reply_context_t {
     rgbw_channel_t rgbw_channel;
 };
 
-struct dt8_temporary_rgb_context_t {
+struct dt8_temporary_rgbw_context_t {
     devices_api_device_match_t matches[kMaxDeviceMatches];
     size_t match_count;
     uint8_t red;
     uint8_t green;
     uint8_t blue;
+    uint8_t white;
     bool has_rgb;
+    bool has_white;
 };
 
 // Backward reply в DALI не содержит адреса устройства. Поэтому после
@@ -63,7 +65,7 @@ struct dt8_temporary_rgb_context_t {
 // reply трактуем в контексте именно этой команды.
 pending_reply_context_t s_pending_reply = {};
 dt8_color_temperature_context_t s_dt8_color_temperature = {};
-dt8_temporary_rgb_context_t s_dt8_temporary_rgb = {};
+dt8_temporary_rgbw_context_t s_dt8_temporary_rgbw = {};
 uint8_t s_dt8_query_colour_value_index = 0;
 bool s_has_dt8_query_colour_value_index = false;
 
@@ -127,11 +129,13 @@ void clear_pending_reply()
 
 void clear_dt8_temporary_rgb()
 {
-    s_dt8_temporary_rgb.match_count = 0;
-    s_dt8_temporary_rgb.red = 0;
-    s_dt8_temporary_rgb.green = 0;
-    s_dt8_temporary_rgb.blue = 0;
-    s_dt8_temporary_rgb.has_rgb = false;
+    s_dt8_temporary_rgbw.match_count = 0;
+    s_dt8_temporary_rgbw.red = 0;
+    s_dt8_temporary_rgbw.green = 0;
+    s_dt8_temporary_rgbw.blue = 0;
+    s_dt8_temporary_rgbw.white = 0;
+    s_dt8_temporary_rgbw.has_rgb = false;
+    s_dt8_temporary_rgbw.has_white = false;
 }
 
 void record_pending_reply(pending_reply_kind_t kind,
@@ -493,32 +497,74 @@ void remember_dt8_temporary_rgb(const dali_frame_description_t &description)
         return;
     }
 
-    std::memcpy(s_dt8_temporary_rgb.matches, matches, sizeof(matches[0]) * match_count);
-    s_dt8_temporary_rgb.match_count = match_count;
-    s_dt8_temporary_rgb.red = s_dt8_color_temperature.dtr0;
-    s_dt8_temporary_rgb.green = s_dt8_color_temperature.dtr1;
-    s_dt8_temporary_rgb.blue = s_dt8_color_temperature.dtr2;
-    s_dt8_temporary_rgb.has_rgb = true;
+    std::memcpy(s_dt8_temporary_rgbw.matches, matches, sizeof(matches[0]) * match_count);
+    s_dt8_temporary_rgbw.match_count = match_count;
+    s_dt8_temporary_rgbw.red = s_dt8_color_temperature.dtr0;
+    s_dt8_temporary_rgbw.green = s_dt8_color_temperature.dtr1;
+    s_dt8_temporary_rgbw.blue = s_dt8_color_temperature.dtr2;
+    s_dt8_temporary_rgbw.has_rgb = true;
 }
 
-void publish_dt8_temporary_rgb()
+void remember_dt8_temporary_white(const dali_frame_description_t &description)
 {
-    if (!s_dt8_temporary_rgb.has_rgb || s_dt8_temporary_rgb.match_count == 0) {
+    if (!s_dt8_color_temperature.has_dtr0) {
+        ESP_LOGW(kTag, "Skipping DT8 temporary white without DTR0 context");
+        clear_dt8_temporary_rgb();
         return;
     }
 
-    publish_rgbw_matches(s_dt8_temporary_rgb.matches,
-                         s_dt8_temporary_rgb.match_count,
-                         rgbw_channel_t::Red,
-                         s_dt8_temporary_rgb.red);
-    publish_rgbw_matches(s_dt8_temporary_rgb.matches,
-                         s_dt8_temporary_rgb.match_count,
-                         rgbw_channel_t::Green,
-                         s_dt8_temporary_rgb.green);
-    publish_rgbw_matches(s_dt8_temporary_rgb.matches,
-                         s_dt8_temporary_rgb.match_count,
-                         rgbw_channel_t::Blue,
-                         s_dt8_temporary_rgb.blue);
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_rgbw_devices_for_description(description,
+                                                            matches,
+                                                            kMaxDeviceMatches,
+                                                            &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve DT8 temporary white target: %s", esp_err_to_name(err));
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    if (match_count == 0) {
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    std::memcpy(s_dt8_temporary_rgbw.matches, matches, sizeof(matches[0]) * match_count);
+    s_dt8_temporary_rgbw.match_count = match_count;
+    s_dt8_temporary_rgbw.white = s_dt8_color_temperature.dtr0;
+    s_dt8_temporary_rgbw.has_white = true;
+}
+
+void publish_dt8_temporary_rgbw()
+{
+    if (s_dt8_temporary_rgbw.match_count == 0 ||
+        (!s_dt8_temporary_rgbw.has_rgb && !s_dt8_temporary_rgbw.has_white)) {
+        return;
+    }
+
+    if (s_dt8_temporary_rgbw.has_rgb) {
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Red,
+                             s_dt8_temporary_rgbw.red);
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Green,
+                             s_dt8_temporary_rgbw.green);
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Blue,
+                             s_dt8_temporary_rgbw.blue);
+    }
+
+    if (s_dt8_temporary_rgbw.has_white) {
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::White,
+                             s_dt8_temporary_rgbw.white);
+    }
+
     clear_dt8_temporary_rgb();
 }
 
@@ -647,8 +693,13 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
         return;
     }
 
+    if (description_command_is(description, "DT8_SET_TEMPORARY_WAF_DIMLEVEL")) {
+        remember_dt8_temporary_white(description);
+        return;
+    }
+
     if (description_command_is(description, "DT8_ACTIVATE")) {
-        publish_dt8_temporary_rgb();
+        publish_dt8_temporary_rgbw();
         return;
     }
 

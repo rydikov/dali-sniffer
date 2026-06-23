@@ -92,6 +92,17 @@ bool description_is_arc_power_level(const dali_frame_description_t &description)
            description_command_is(description, "ArcPower");
 }
 
+bool description_is_relative_brightness_command(const dali_frame_description_t &description)
+{
+    return description_command_is(description, "UP") ||
+           description_command_is(description, "DOWN") ||
+           description_command_is(description, "STEP_UP") ||
+           description_command_is(description, "STEP_DOWN") ||
+           description_command_is(description, "ON_AND_STEP_UP") ||
+           description_command_is(description, "STEP_DOWN_AND_OFF") ||
+           description_command_is(description, "GO_TO_LAST_ACTIVE_LEVEL");
+}
+
 void clear_pending_reply()
 {
     s_pending_reply.kind = pending_reply_kind_t::None;
@@ -361,6 +372,35 @@ void publish_target_brightness(const dali_frame_description_t &description, uint
     publish_brightness_matches(matches, match_count, level);
 }
 
+void query_brightness_matches(const devices_api_device_match_t *matches,
+                              size_t match_count,
+                              const char *reason)
+{
+    for (size_t i = 0; i < match_count; ++i) {
+        const uint8_t address_byte = static_cast<uint8_t>((matches[i].address << 1) | 0x01);
+
+        // Backward reply не содержит адреса, поэтому перед каждым follow-up
+        // QUERY_ACTUAL_LEVEL запоминаем ровно то устройство, которое сейчас
+        // опрашиваем.
+        record_pending_reply(pending_reply_kind_t::Brightness, &matches[i], 1);
+
+        const esp_err_t send_err = dali_sniffer_send_frame(address_byte, kDaliQueryActualLevel);
+        if (send_err != ESP_OK) {
+            ESP_LOGW(kTag,
+                     "Failed to query brightness for device %u after %s: %s",
+                     static_cast<unsigned>(matches[i].address),
+                     reason != nullptr ? reason : "brightness command",
+                     esp_err_to_name(send_err));
+            clear_pending_reply();
+            continue;
+        }
+
+        // Небольшая пауза снижает шанс отправить следующий query до того, как
+        // устройство успеет ответить на предыдущий.
+        vTaskDelay(kDaliReplyWaitAfterQueryTicks);
+    }
+}
+
 void query_scene_brightness(const dali_frame_description_t &description)
 {
     if (!description.has_command_index || description.command_index > 15) {
@@ -380,32 +420,27 @@ void query_scene_brightness(const dali_frame_description_t &description)
         return;
     }
 
-    // GO_TO_SCENE сам не содержит уровня яркости. Для каждого подходящего
-    // устройства отправляем short QUERY_ACTUAL_LEVEL, чтобы последующий reply
-    // дал реальное состояние brightness.
-    for (size_t i = 0; i < match_count; ++i) {
-        const uint8_t address_byte = static_cast<uint8_t>((matches[i].address << 1) | 0x01);
+    query_brightness_matches(matches, match_count, "GO_TO_SCENE");
+}
 
-        // Backward reply не содержит адреса, поэтому перед каждым follow-up
-        // QUERY_ACTUAL_LEVEL запоминаем ровно то устройство, которое сейчас
-        // опрашиваем после GO_TO_SCENE.
-        record_pending_reply(pending_reply_kind_t::Brightness, &matches[i], 1);
-
-        const esp_err_t send_err = dali_sniffer_send_frame(address_byte, kDaliQueryActualLevel);
-        if (send_err != ESP_OK) {
-            ESP_LOGW(kTag,
-                     "Failed to query brightness for device %u after scene %u: %s",
-                     static_cast<unsigned>(matches[i].address),
-                     static_cast<unsigned>(description.command_index),
-                     esp_err_to_name(send_err));
-            clear_pending_reply();
-            continue;
-        }
-
-        // Небольшая пауза снижает шанс отправить следующий query до того, как
-        // устройство успеет ответить на предыдущий.
-        vTaskDelay(kDaliReplyWaitAfterQueryTicks);
+void query_relative_brightness(const dali_frame_description_t &description)
+{
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_brightness_devices_for_description(description,
+                                                                  false,
+                                                                  0,
+                                                                  matches,
+                                                                  kMaxDeviceMatches,
+                                                                  &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve relative brightness target: %s", esp_err_to_name(err));
+        return;
     }
+
+    query_brightness_matches(matches,
+                             match_count,
+                             description.has_command_name ? description.command_name : "relative brightness command");
 }
 
 void remember_dt8_color_temperature_dtr(const dali_frame_description_t &description)
@@ -513,6 +548,11 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_command_is(description, "GO_TO_SCENE")) {
         query_scene_brightness(description);
+        return;
+    }
+
+    if (description_is_relative_brightness_command(description)) {
+        query_relative_brightness(description);
         return;
     }
 

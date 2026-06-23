@@ -343,3 +343,23 @@ void mqtt_bridge_publish_device_color_temperature(uint8_t address, uint32_t kelv
 {
     publish_device_state_number(address, "color_temperature", static_cast<unsigned>(kelvin));
 }
+
+void mqtt_bridge_publish_device_red(uint8_t address, uint8_t level)
+{
+    publish_device_state_number(address, "red", static_cast<unsigned>(level));
+}
+
+void mqtt_bridge_publish_device_green(uint8_t address, uint8_t level)
+{
+    publish_device_state_number(address, "green", static_cast<unsigned>(level));
+}
+
+void mqtt_bridge_publish_device_blue(uint8_t address, uint8_t level)
+{
+    publish_device_state_number(address, "blue", static_cast<unsigned>(level));
+}
+
+void mqtt_bridge_publish_device_white(uint8_t address, uint8_t level)
+{
+    publish_device_state_number(address, "white", static_cast<unsigned>(level));
+}

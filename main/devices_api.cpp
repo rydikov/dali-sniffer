@@ -554,6 +554,7 @@ esp_err_t devices_api_delete_handler(httpd_req_t *req)
 enum class DeviceCapability : uint8_t {
     Brightness,
     ColorTemperature,
+    Rgbw,
 };
 
 static bool device_has_capability(const device_record_t &record, DeviceCapability capability)
@@ -563,6 +564,8 @@ static bool device_has_capability(const device_record_t &record, DeviceCapabilit
         return record.brightness;
     case DeviceCapability::ColorTemperature:
         return record.color_temperature;
+    case DeviceCapability::Rgbw:
+        return record.rgbw;
     }
 
     return false;
@@ -657,6 +660,26 @@ esp_err_t devices_api_find_color_temperature_devices(const char *address_kind,
                                       require_scene,
                                       scene,
                                       DeviceCapability::ColorTemperature,
+                                      matches,
+                                      max_matches,
+                                      match_count);
+}
+
+esp_err_t devices_api_find_rgbw_devices(const char *address_kind,
+                                        bool has_address_value,
+                                        int address_value,
+                                        bool require_scene,
+                                        uint8_t scene,
+                                        devices_api_device_match_t *matches,
+                                        size_t max_matches,
+                                        size_t *match_count)
+{
+    return find_devices_by_capability(address_kind,
+                                      has_address_value,
+                                      address_value,
+                                      require_scene,
+                                      scene,
+                                      DeviceCapability::Rgbw,
                                       matches,
                                       max_matches,
                                       match_count);

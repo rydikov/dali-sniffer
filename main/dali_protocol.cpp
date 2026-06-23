@@ -133,6 +133,8 @@ const char *dali_command_name(uint8_t command)
         return "DT8_SET_COLOUR_TEMP_TC";
     case 0xEB:
         return "DT8_SET_TEMPORARY_RGB_DIMLEVEL";
+    case 0xEC:
+        return "DT8_SET_TEMPORARY_WAF_DIMLEVEL";
     case 0xED:
         return "QUERY_GEAR_TYPE";
     case 0xEE:

@@ -35,8 +35,10 @@ enum class rgbw_channel_t : uint8_t {
 struct dt8_color_temperature_context_t {
     uint8_t dtr0;
     uint8_t dtr1;
+    uint8_t dtr2;
     bool has_dtr0;
     bool has_dtr1;
+    bool has_dtr2;
 };
 
 struct pending_reply_context_t {
@@ -47,11 +49,23 @@ struct pending_reply_context_t {
     rgbw_channel_t rgbw_channel;
 };
 
+struct dt8_temporary_rgbw_context_t {
+    devices_api_device_match_t matches[kMaxDeviceMatches];
+    size_t match_count;
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+    uint8_t white;
+    bool has_rgb;
+    bool has_white;
+};
+
 // Backward reply в DALI не содержит адреса устройства. Поэтому после
 // query запоминаем, к каким нашим устройствам относился запрос, и следующий
 // reply трактуем в контексте именно этой команды.
 pending_reply_context_t s_pending_reply = {};
 dt8_color_temperature_context_t s_dt8_color_temperature = {};
+dt8_temporary_rgbw_context_t s_dt8_temporary_rgbw = {};
 uint8_t s_dt8_query_colour_value_index = 0;
 bool s_has_dt8_query_colour_value_index = false;
 
@@ -111,6 +125,17 @@ void clear_pending_reply()
     s_pending_reply.match_count = 0;
     s_pending_reply.color_temperature_high = 0;
     s_pending_reply.rgbw_channel = rgbw_channel_t::Red;
+}
+
+void clear_dt8_temporary_rgb()
+{
+    s_dt8_temporary_rgbw.match_count = 0;
+    s_dt8_temporary_rgbw.red = 0;
+    s_dt8_temporary_rgbw.green = 0;
+    s_dt8_temporary_rgbw.blue = 0;
+    s_dt8_temporary_rgbw.white = 0;
+    s_dt8_temporary_rgbw.has_rgb = false;
+    s_dt8_temporary_rgbw.has_white = false;
 }
 
 void record_pending_reply(pending_reply_kind_t kind,
@@ -445,6 +470,104 @@ void query_relative_brightness(const dali_frame_description_t &description)
                              description.has_command_name ? description.command_name : "relative brightness command");
 }
 
+void remember_dt8_temporary_rgb(const dali_frame_description_t &description)
+{
+    if (!s_dt8_color_temperature.has_dtr0 ||
+        !s_dt8_color_temperature.has_dtr1 ||
+        !s_dt8_color_temperature.has_dtr2) {
+        ESP_LOGW(kTag, "Skipping DT8 temporary RGB without complete DTR0/DTR1/DTR2 context");
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_rgbw_devices_for_description(description,
+                                                            matches,
+                                                            kMaxDeviceMatches,
+                                                            &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve DT8 temporary RGB target: %s", esp_err_to_name(err));
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    if (match_count == 0) {
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    std::memcpy(s_dt8_temporary_rgbw.matches, matches, sizeof(matches[0]) * match_count);
+    s_dt8_temporary_rgbw.match_count = match_count;
+    s_dt8_temporary_rgbw.red = s_dt8_color_temperature.dtr0;
+    s_dt8_temporary_rgbw.green = s_dt8_color_temperature.dtr1;
+    s_dt8_temporary_rgbw.blue = s_dt8_color_temperature.dtr2;
+    s_dt8_temporary_rgbw.has_rgb = true;
+}
+
+void remember_dt8_temporary_white(const dali_frame_description_t &description)
+{
+    if (!s_dt8_color_temperature.has_dtr0) {
+        ESP_LOGW(kTag, "Skipping DT8 temporary white without DTR0 context");
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_rgbw_devices_for_description(description,
+                                                            matches,
+                                                            kMaxDeviceMatches,
+                                                            &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve DT8 temporary white target: %s", esp_err_to_name(err));
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    if (match_count == 0) {
+        clear_dt8_temporary_rgb();
+        return;
+    }
+
+    std::memcpy(s_dt8_temporary_rgbw.matches, matches, sizeof(matches[0]) * match_count);
+    s_dt8_temporary_rgbw.match_count = match_count;
+    s_dt8_temporary_rgbw.white = s_dt8_color_temperature.dtr0;
+    s_dt8_temporary_rgbw.has_white = true;
+}
+
+void publish_dt8_temporary_rgbw()
+{
+    if (s_dt8_temporary_rgbw.match_count == 0 ||
+        (!s_dt8_temporary_rgbw.has_rgb && !s_dt8_temporary_rgbw.has_white)) {
+        return;
+    }
+
+    if (s_dt8_temporary_rgbw.has_rgb) {
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Red,
+                             s_dt8_temporary_rgbw.red);
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Green,
+                             s_dt8_temporary_rgbw.green);
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::Blue,
+                             s_dt8_temporary_rgbw.blue);
+    }
+
+    if (s_dt8_temporary_rgbw.has_white) {
+        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
+                             s_dt8_temporary_rgbw.match_count,
+                             rgbw_channel_t::White,
+                             s_dt8_temporary_rgbw.white);
+    }
+
+    clear_dt8_temporary_rgb();
+}
+
 void remember_dt8_color_temperature_dtr(const dali_frame_description_t &description)
 {
     if (!description.has_arg) {
@@ -462,6 +585,12 @@ void remember_dt8_color_temperature_dtr(const dali_frame_description_t &descript
     if (description_command_is(description, "DATA_TRANSFER_REGISTER1")) {
         s_dt8_color_temperature.dtr1 = description.arg;
         s_dt8_color_temperature.has_dtr1 = true;
+        return;
+    }
+
+    if (description_command_is(description, "DATA_TRANSFER_REGISTER2")) {
+        s_dt8_color_temperature.dtr2 = description.arg;
+        s_dt8_color_temperature.has_dtr2 = true;
     }
 }
 
@@ -528,11 +657,12 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     clear_pending_reply();
 
-    // DTR0/DTR1 сами по себе не адресованы устройству. Они подготавливают
-    // 16-битное DT8 Tc значение для следующего DT8_SET_COLOUR_TEMP_TC. При
+    // DTR0/DTR1/DTR2 сами по себе не адресованы устройству. Они подготавливают
+    // DT8 Tc/RGB значения для следующих DT8-команд. При
     // query-последовательностях DTR0 также выбирает DT8 colour value index.
     if (description_command_is(description, "DATA_TRANSFER_REGISTER0") ||
-        description_command_is(description, "DATA_TRANSFER_REGISTER1")) {
+        description_command_is(description, "DATA_TRANSFER_REGISTER1") ||
+        description_command_is(description, "DATA_TRANSFER_REGISTER2")) {
         remember_dt8_color_temperature_dtr(description);
         return;
     }
@@ -555,6 +685,21 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_is_relative_brightness_command(description)) {
         query_relative_brightness(description);
+        return;
+    }
+
+    if (description_command_is(description, "DT8_SET_TEMPORARY_RGB_DIMLEVEL")) {
+        remember_dt8_temporary_rgb(description);
+        return;
+    }
+
+    if (description_command_is(description, "DT8_SET_TEMPORARY_WAF_DIMLEVEL")) {
+        remember_dt8_temporary_white(description);
+        return;
+    }
+
+    if (description_command_is(description, "DT8_ACTIVATE")) {
+        publish_dt8_temporary_rgbw();
         return;
     }
 

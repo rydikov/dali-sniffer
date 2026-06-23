@@ -10,7 +10,9 @@ extern "C" {
 }
 
 #include "dali_protocol.h"
+#include "dali_state_sync.h"
 #include "dali_sniffer.h"
+#include "devices_api.h"
 #include "mqtt_bridge.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
@@ -40,6 +42,12 @@ typedef struct {
 const embedded_asset_t s_assets[] = {
     {
         .uri = "/",
+        .content_path = "/index.html",
+        .start = web_index_html_start,
+        .end = web_index_html_end,
+    },
+    {
+        .uri = "/devices",
         .content_path = "/index.html",
         .start = web_index_html_start,
         .end = web_index_html_end,
@@ -187,11 +195,13 @@ void broadcast_message(const dali_frame_event_t &frame)
     int client_fds[CONFIG_LWIP_MAX_SOCKETS];
     size_t clients = CONFIG_LWIP_MAX_SOCKETS;
 
+    dali_describe_frame(frame, &description);
+    dali_state_sync_handle_frame(frame, description);
+
     if (s_server == nullptr) {
         return;
     }
 
-    dali_describe_frame(frame, &description);
     payload = build_json_string_message("message", description.text);
     if (payload == nullptr) {
         ESP_LOGW(kTag, "Failed to build broadcast JSON payload");
@@ -230,7 +240,6 @@ void websocket_event_task(void *arg)
     while (true) {
         if (xQueueReceive(queue, &frame, portMAX_DELAY) == pdTRUE) {
             broadcast_message(frame);
-            mqtt_bridge_publish_sniffer_event(frame);
         }
     }
 }
@@ -347,6 +356,31 @@ extern "C" esp_err_t web_server_start(void)
     index_uri.method = HTTP_GET;
     index_uri.handler = http_get_handler;
 
+    httpd_uri_t devices_uri = {};
+    devices_uri.uri = "/devices";
+    devices_uri.method = HTTP_GET;
+    devices_uri.handler = http_get_handler;
+
+    httpd_uri_t devices_api_get_uri = {};
+    devices_api_get_uri.uri = "/api/devices";
+    devices_api_get_uri.method = HTTP_GET;
+    devices_api_get_uri.handler = devices_api_get_handler;
+
+    httpd_uri_t devices_api_post_uri = {};
+    devices_api_post_uri.uri = "/api/devices";
+    devices_api_post_uri.method = HTTP_POST;
+    devices_api_post_uri.handler = devices_api_post_handler;
+
+    httpd_uri_t devices_api_put_uri = {};
+    devices_api_put_uri.uri = "/api/devices/*";
+    devices_api_put_uri.method = HTTP_PUT;
+    devices_api_put_uri.handler = devices_api_put_handler;
+
+    httpd_uri_t devices_api_delete_uri = {};
+    devices_api_delete_uri.uri = "/api/devices/*";
+    devices_api_delete_uri.method = HTTP_DELETE;
+    devices_api_delete_uri.handler = devices_api_delete_handler;
+
     httpd_uri_t assets_uri = {};
     assets_uri.uri = "/assets/*";
     assets_uri.method = HTTP_GET;
@@ -364,7 +398,12 @@ extern "C" esp_err_t web_server_start(void)
     }
 
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &ws_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_get_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_post_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_put_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_delete_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &index_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &assets_uri));
 
     if (xTaskCreate(websocket_event_task, "ws_dali", 4096, nullptr, 5, nullptr) != pdPASS) {

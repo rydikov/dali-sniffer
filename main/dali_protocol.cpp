@@ -37,6 +37,8 @@ const char *dali_command_name(uint8_t command)
         return "ON_AND_STEP_UP";
     case 0x09:
         return "ENABLE_DAPC_SEQUENCE";
+    case 0x0A:
+        return "GO_TO_LAST_ACTIVE_LEVEL";
     case 0x20:
         return "RESET";
     case 0x21:

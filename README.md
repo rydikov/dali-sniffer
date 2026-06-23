@@ -233,7 +233,6 @@ dali/<custom_id>
 
 ```text
 dali/A/status
-dali/A/event/sniffer
 dali/A/event/command/request
 dali/A/event/command/result
 dali/A/command/execute
@@ -242,7 +241,6 @@ dali/A/command/execute
 Что публикуется:
 
 * `dali/<custom_id>/status` - состояние MQTT и устройства;
-* `dali/<custom_id>/event/sniffer` - все кадры, увиденные сниффером;
 * `dali/<custom_id>/event/command/request` - факт приёма команды из `ws` или `mqtt`;
 * `dali/<custom_id>/event/command/result` - результат исполнения команды.
 
@@ -259,41 +257,6 @@ dali/A/command/execute
   "uptime_ms": 123456
 }
 ```
-
-Пример события сниффера:
-
-```json
-{
-  "type": "sniffer_event",
-  "origin": "sniffer",
-  "uptime_ms": 123456,
-  "bit_length": 16,
-  "is_backward_frame": false,
-  "raw_hex": "0190",
-  "raw_value": 400,
-  "text": "DALI command short[0]: QUERY_STATUS raw=0x0190",
-  "address": {
-    "kind": "short",
-    "value": 0,
-    "label": "short[0]"
-  },
-  "command": "QUERY_STATUS"
-}
-```
-
-В `event/sniffer` дополнительно могут появляться поля:
-
-* `command_index` - индекс сцены/группы для индексируемых команд;
-* `level` - уровень для DAPC;
-* `arg` - аргумент special/input команды;
-* `opcode` - opcode для generic 24-bit frame;
-* `command: null` - если человекочитаемое имя команды определить не удалось.
-
-Поле `address` содержит:
-
-* `kind` - `short`, `group`, `broadcast`, `special`, `reply`, `unknown`;
-* `value` - номер short/group адреса, `0` для `broadcast` или `null`, если численного адреса нет;
-* `label` - готовая строка вроде `short[5]`, `group[2]`, `broadcast`, `special`.
 
 Примеры событий исполнения команды:
 

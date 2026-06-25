@@ -316,6 +316,8 @@ Payload должен быть JSON:
 * `device/<address>/color_temperature` - цветовая температура в Kelvin;
 * `device/<address>/red`, `green`, `blue`, `white` - raw DT8 RGBW-каналы `0..254`.
 
+Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новые подписчики сразу получали последнее известное состояние.
+
 Команды с явным значением, например `DAPC` / `ArcPower`, публикуют яркость сразу. Если публикуется яркость больше `0`, сохранённое поле устройства `status` становится `on`; если публикуется `0`, `status` становится `off`.
 
 `QUERY_STATUS` обновляет поле `status` по backward reply:

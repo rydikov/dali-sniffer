@@ -381,7 +381,7 @@ function renderDeviceCard(device) {
   const capabilities = capabilityLabels(device);
   const status = normalizedDeviceStatus(device);
 
-  card.className = 'device-card';
+  card.className = `device-card status-${status}`;
   header.className = 'device-card-header';
   meta.className = 'device-card-meta';
   title.textContent = `Address ${device.address}`;

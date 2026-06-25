@@ -643,15 +643,30 @@ input[type="checkbox"] {
 }
 
 .device-card {
-  min-height: 172px;
+  min-height: 208px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #24222c;
   padding: 14px;
   display: grid;
+  grid-template-rows: auto 1fr auto;
   gap: 12px;
-  align-content: start;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.device-card.status-on {
+  border-color: rgba(212, 179, 111, 0.58);
+  background: #28261f;
+}
+
+.device-card.status-off {
+  border-color: rgba(138, 130, 150, 0.42);
+  background: #24222c;
+}
+
+.device-card.status-failure {
+  border-color: rgba(220, 138, 146, 0.68);
+  background: #2d2228;
 }
 
 .device-card-header {
@@ -720,6 +735,7 @@ input[type="checkbox"] {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+  align-self: end;
 }
 
 .compact-button {

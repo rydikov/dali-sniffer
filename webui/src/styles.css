@@ -646,7 +646,7 @@ input[type="checkbox"] {
   min-height: 208px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #24222c;
+  background: #151527;
   padding: 14px;
   display: grid;
   grid-template-rows: auto 1fr auto;
@@ -656,12 +656,10 @@ input[type="checkbox"] {
 
 .device-card.status-on {
   border-color: rgba(212, 179, 111, 0.58);
-  background: #28261f;
 }
 
 .device-card.status-off {
   border-color: rgba(138, 130, 150, 0.42);
-  background: #24222c;
 }
 
 .device-card.status-failure {

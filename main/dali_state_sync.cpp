@@ -538,24 +538,6 @@ void query_brightness_matches(const devices_api_device_match_t *matches,
     }
 }
 
-void send_brightness_query_matches(const devices_api_device_match_t *matches, size_t match_count, const char *reason)
-{
-    for (size_t i = 0; i < match_count; ++i) {
-        const uint8_t address_byte = static_cast<uint8_t>((matches[i].address << 1) | 0x01);
-        const esp_err_t send_err = dali_sniffer_send_frame(address_byte, kDaliQueryActualLevel);
-        if (send_err != ESP_OK) {
-            ESP_LOGW(kTag,
-                     "Failed to send brightness query for device %u after %s: %s",
-                     static_cast<unsigned>(matches[i].address),
-                     reason != nullptr ? reason : "status on",
-                     esp_err_to_name(send_err));
-            continue;
-        }
-
-        vTaskDelay(kDaliReplyWaitAfterQueryTicks);
-    }
-}
-
 void query_turned_on_device_state(const devices_api_device_match_t *matches, size_t match_count)
 {
     devices_api_device_match_t brightness_matches[kMaxDeviceMatches] = {};
@@ -570,7 +552,7 @@ void query_turned_on_device_state(const devices_api_device_match_t *matches, siz
         }
     }
 
-    send_brightness_query_matches(brightness_matches, brightness_match_count, "QUERY_STATUS on transition");
+    query_brightness_matches(brightness_matches, brightness_match_count, "QUERY_STATUS on transition");
 }
 
 void query_scene_brightness(const dali_frame_description_t &description)

@@ -20,6 +20,7 @@ constexpr TickType_t kDaliReplyWaitAfterQueryTicks = pdMS_TO_TICKS(25);
 enum class pending_reply_kind_t : uint8_t {
     None,
     Brightness,
+    Status,
     ColorTemperatureHigh,
     ColorTemperatureLow,
     RgbwChannel,
@@ -75,6 +76,7 @@ bool description_command_is(const dali_frame_description_t &description, const c
 }
 
 uint32_t kelvin_from_mired(uint16_t mired);
+void query_turned_on_device_state(const devices_api_device_match_t *matches, size_t match_count);
 
 bool description_is_dt8_query_colour_value(const dali_frame_description_t &description)
 {
@@ -175,6 +177,21 @@ esp_err_t find_brightness_devices_for_description(const dali_frame_description_t
                                                match_count);
 }
 
+esp_err_t find_devices_for_description(const dali_frame_description_t &description,
+                                       devices_api_device_match_t *matches,
+                                       size_t max_matches,
+                                       size_t *match_count)
+{
+    return devices_api_find_devices(description.address_kind,
+                                    description.has_address_value,
+                                    description.address_value,
+                                    false,
+                                    0,
+                                    matches,
+                                    max_matches,
+                                    match_count);
+}
+
 esp_err_t find_color_temperature_devices_for_description(const dali_frame_description_t &description,
                                                          devices_api_device_match_t *matches,
                                                          size_t max_matches,
@@ -213,6 +230,15 @@ void publish_brightness_matches(const devices_api_device_match_t *matches, size_
     // Формирование topic спрятано внутри mqtt_bridge.
     for (size_t i = 0; i < match_count; ++i) {
         mqtt_bridge_publish_device_brightness(matches[i].address, level);
+        const devices_api_device_status_t status =
+            level > 0 ? DEVICES_API_DEVICE_STATUS_ON : DEVICES_API_DEVICE_STATUS_OFF;
+        const esp_err_t err = devices_api_update_device_status(matches[i].address, status, nullptr);
+        if (err != ESP_OK) {
+            ESP_LOGW(kTag,
+                     "Failed to update status for device %u after brightness publish: %s",
+                     static_cast<unsigned>(matches[i].address),
+                     esp_err_to_name(err));
+        }
     }
 }
 
@@ -248,6 +274,63 @@ void publish_color_temperature_matches(const devices_api_device_match_t *matches
     }
 }
 
+void append_match_if_room(devices_api_device_match_t *matches, size_t max_matches, size_t *match_count, uint8_t address)
+{
+    if (*match_count >= max_matches) {
+        return;
+    }
+
+    matches[*match_count].address = address;
+    *match_count = *match_count + 1;
+}
+
+bool saved_device_has_brightness(uint8_t address)
+{
+    devices_api_device_match_t matches[1] = {};
+    size_t match_count = 0;
+    return devices_api_find_brightness_devices("short", true, address, false, 0, matches, 1, &match_count) == ESP_OK &&
+           match_count > 0;
+}
+
+devices_api_device_status_t status_from_query_status_reply(uint8_t value)
+{
+    if (value == 0x00) {
+        return DEVICES_API_DEVICE_STATUS_OFF;
+    }
+
+    if (value == 0x04) {
+        return DEVICES_API_DEVICE_STATUS_ON;
+    }
+
+    return DEVICES_API_DEVICE_STATUS_FAILURE;
+}
+
+void update_status_matches(const devices_api_device_match_t *matches,
+                           size_t match_count,
+                           devices_api_device_status_t status,
+                           devices_api_device_match_t *turned_on_matches,
+                           size_t max_turned_on_matches,
+                           size_t *turned_on_match_count)
+{
+    *turned_on_match_count = 0;
+
+    for (size_t i = 0; i < match_count; ++i) {
+        devices_api_device_status_t previous_status = DEVICES_API_DEVICE_STATUS_OFF;
+        const esp_err_t err = devices_api_update_device_status(matches[i].address, status, &previous_status);
+        if (err != ESP_OK) {
+            ESP_LOGW(kTag,
+                     "Failed to update status for device %u: %s",
+                     static_cast<unsigned>(matches[i].address),
+                     esp_err_to_name(err));
+            continue;
+        }
+
+        if (previous_status != DEVICES_API_DEVICE_STATUS_ON && status == DEVICES_API_DEVICE_STATUS_ON) {
+            append_match_if_room(turned_on_matches, max_turned_on_matches, turned_on_match_count, matches[i].address);
+        }
+    }
+}
+
 void remember_query_actual_level_target(const dali_frame_description_t &description)
 {
     size_t match_count = 0;
@@ -272,6 +355,20 @@ void remember_query_actual_level_target(const dali_frame_description_t &descript
     }
 
     record_pending_reply(pending_reply_kind_t::Brightness, matches, match_count);
+}
+
+void remember_query_status_target(const dali_frame_description_t &description)
+{
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_devices_for_description(description, matches, kMaxDeviceMatches, &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve QUERY_STATUS target: %s", esp_err_to_name(err));
+        clear_pending_reply();
+        return;
+    }
+
+    record_pending_reply(pending_reply_kind_t::Status, matches, match_count);
 }
 
 void remember_dt8_query_colour_value_target(const dali_frame_description_t &description)
@@ -356,6 +453,19 @@ void publish_pending_reply(const dali_frame_event_t &frame)
         publish_brightness_matches(s_pending_reply.matches, s_pending_reply.match_count, value);
         clear_pending_reply();
         return;
+    case pending_reply_kind_t::Status: {
+        devices_api_device_match_t turned_on_matches[kMaxDeviceMatches] = {};
+        size_t turned_on_match_count = 0;
+        update_status_matches(s_pending_reply.matches,
+                              s_pending_reply.match_count,
+                              status_from_query_status_reply(value),
+                              turned_on_matches,
+                              kMaxDeviceMatches,
+                              &turned_on_match_count);
+        clear_pending_reply();
+        query_turned_on_device_state(turned_on_matches, turned_on_match_count);
+        return;
+    }
     case pending_reply_kind_t::ColorTemperatureHigh:
         s_pending_reply.color_temperature_high = value;
         return;
@@ -426,6 +536,23 @@ void query_brightness_matches(const devices_api_device_match_t *matches,
         // устройство успеет ответить на предыдущий.
         vTaskDelay(kDaliReplyWaitAfterQueryTicks);
     }
+}
+
+void query_turned_on_device_state(const devices_api_device_match_t *matches, size_t match_count)
+{
+    devices_api_device_match_t brightness_matches[kMaxDeviceMatches] = {};
+    size_t brightness_match_count = 0;
+
+    for (size_t i = 0; i < match_count; ++i) {
+        if (saved_device_has_brightness(matches[i].address)) {
+            append_match_if_room(brightness_matches,
+                                 kMaxDeviceMatches,
+                                 &brightness_match_count,
+                                 matches[i].address);
+        }
+    }
+
+    query_brightness_matches(brightness_matches, brightness_match_count, "QUERY_STATUS on transition");
 }
 
 void query_scene_brightness(const dali_frame_description_t &description)
@@ -642,6 +769,11 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_command_is(description, "QUERY_ACTUAL_LEVEL")) {
         remember_query_actual_level_target(description);
+        return;
+    }
+
+    if (description_command_is(description, "QUERY_STATUS")) {
+        remember_query_status_target(description);
         return;
     }
 

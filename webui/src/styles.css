@@ -665,11 +665,23 @@ input[type="checkbox"] {
   height: 42px;
   border-radius: 8px;
   background: #343241;
-  color: var(--warn);
+  color: var(--muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+}
+
+.device-icon.status-on {
+  color: var(--warn);
+}
+
+.device-icon.status-off {
+  color: var(--muted);
+}
+
+.device-icon.status-failure {
+  color: var(--error);
 }
 
 .device-card h3 {

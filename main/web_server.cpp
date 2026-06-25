@@ -29,6 +29,8 @@ extern const char web_app_css_start[] asm("_binary_app_css_start");
 extern const char web_app_css_end[] asm("_binary_app_css_end");
 extern const char web_app_js_start[] asm("_binary_app_js_start");
 extern const char web_app_js_end[] asm("_binary_app_js_end");
+extern const char web_favicon_ico_start[] asm("_binary_favicon_ico_start");
+extern const char web_favicon_ico_end[] asm("_binary_favicon_ico_end");
 
 httpd_handle_t s_server = nullptr;
 
@@ -63,6 +65,12 @@ const embedded_asset_t s_assets[] = {
         .content_path = "/assets/app.js",
         .start = web_app_js_start,
         .end = web_app_js_end,
+    },
+    {
+        .uri = "/favicon.ico",
+        .content_path = "/favicon.svg",
+        .start = web_favicon_ico_start,
+        .end = web_favicon_ico_end,
     },
 };
 
@@ -386,6 +394,11 @@ extern "C" esp_err_t web_server_start(void)
     assets_uri.method = HTTP_GET;
     assets_uri.handler = http_get_handler;
 
+    httpd_uri_t favicon_uri = {};
+    favicon_uri.uri = "/favicon.ico";
+    favicon_uri.method = HTTP_GET;
+    favicon_uri.handler = http_get_handler;
+
     httpd_uri_t ws_uri = {};
     ws_uri.uri = "/ws";
     ws_uri.method = HTTP_GET;
@@ -404,6 +417,7 @@ extern "C" esp_err_t web_server_start(void)
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_api_delete_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &index_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &devices_uri));
+    ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &favicon_uri));
     ESP_ERROR_CHECK(httpd_register_uri_handler(s_server, &assets_uri));
 
     if (xTaskCreate(websocket_event_task, "ws_dali", 4096, nullptr, 5, nullptr) != pdPASS) {

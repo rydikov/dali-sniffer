@@ -230,6 +230,15 @@ void publish_brightness_matches(const devices_api_device_match_t *matches, size_
     // Формирование topic спрятано внутри mqtt_bridge.
     for (size_t i = 0; i < match_count; ++i) {
         mqtt_bridge_publish_device_brightness(matches[i].address, level);
+        const devices_api_device_status_t status =
+            level > 0 ? DEVICES_API_DEVICE_STATUS_ON : DEVICES_API_DEVICE_STATUS_OFF;
+        const esp_err_t err = devices_api_update_device_status(matches[i].address, status, nullptr);
+        if (err != ESP_OK) {
+            ESP_LOGW(kTag,
+                     "Failed to update status for device %u after brightness publish: %s",
+                     static_cast<unsigned>(matches[i].address),
+                     esp_err_to_name(err));
+        }
     }
 }
 

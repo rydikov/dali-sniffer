@@ -22,6 +22,7 @@ extern "C" {
 namespace {
 
 constexpr const char *kTag = "web_server";
+constexpr size_t kMaxUriHandlers = 12;
 
 extern const char web_index_html_start[] asm("_binary_index_html_start");
 extern const char web_index_html_end[] asm("_binary_index_html_end");
@@ -358,6 +359,7 @@ extern "C" esp_err_t web_server_start(void)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard;
+    config.max_uri_handlers = kMaxUriHandlers;
 
     httpd_uri_t index_uri = {};
     index_uri.uri = "/";

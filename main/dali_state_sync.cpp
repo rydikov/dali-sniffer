@@ -285,19 +285,15 @@ bool saved_device_has_brightness(uint8_t address)
 
 devices_api_device_status_t status_from_query_status_reply(uint8_t value)
 {
-    constexpr uint8_t kControlGearFailureMask = 1U << 0;
-    constexpr uint8_t kLampFailureMask = 1U << 1;
-    constexpr uint8_t kLampOnMask = 1U << 2;
-
-    if ((value & (kControlGearFailureMask | kLampFailureMask)) != 0U) {
-        return DEVICES_API_DEVICE_STATUS_FAILURE;
+    if (value == 0x00) {
+        return DEVICES_API_DEVICE_STATUS_OFF;
     }
 
-    if ((value & kLampOnMask) != 0U) {
+    if (value == 0x04) {
         return DEVICES_API_DEVICE_STATUS_ON;
     }
 
-    return DEVICES_API_DEVICE_STATUS_OFF;
+    return DEVICES_API_DEVICE_STATUS_FAILURE;
 }
 
 void update_status_matches(const devices_api_device_match_t *matches,
@@ -320,7 +316,7 @@ void update_status_matches(const devices_api_device_match_t *matches,
             continue;
         }
 
-        if (previous_status == DEVICES_API_DEVICE_STATUS_OFF && status == DEVICES_API_DEVICE_STATUS_ON) {
+        if (previous_status != DEVICES_API_DEVICE_STATUS_ON && status == DEVICES_API_DEVICE_STATUS_ON) {
             append_match_if_room(turned_on_matches, max_turned_on_matches, turned_on_match_count, matches[i].address);
         }
     }

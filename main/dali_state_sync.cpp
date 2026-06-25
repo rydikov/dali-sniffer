@@ -20,6 +20,7 @@ constexpr TickType_t kDaliReplyWaitAfterQueryTicks = pdMS_TO_TICKS(25);
 enum class pending_reply_kind_t : uint8_t {
     None,
     Brightness,
+    Status,
     ColorTemperatureHigh,
     ColorTemperatureLow,
     RgbwChannel,
@@ -175,6 +176,21 @@ esp_err_t find_brightness_devices_for_description(const dali_frame_description_t
                                                match_count);
 }
 
+esp_err_t find_devices_for_description(const dali_frame_description_t &description,
+                                       devices_api_device_match_t *matches,
+                                       size_t max_matches,
+                                       size_t *match_count)
+{
+    return devices_api_find_devices(description.address_kind,
+                                    description.has_address_value,
+                                    description.address_value,
+                                    false,
+                                    0,
+                                    matches,
+                                    max_matches,
+                                    match_count);
+}
+
 esp_err_t find_color_temperature_devices_for_description(const dali_frame_description_t &description,
                                                          devices_api_device_match_t *matches,
                                                          size_t max_matches,
@@ -248,6 +264,38 @@ void publish_color_temperature_matches(const devices_api_device_match_t *matches
     }
 }
 
+devices_api_device_status_t status_from_query_status_reply(uint8_t value)
+{
+    constexpr uint8_t kControlGearFailureMask = 1U << 0;
+    constexpr uint8_t kLampFailureMask = 1U << 1;
+    constexpr uint8_t kLampOnMask = 1U << 2;
+
+    if ((value & (kControlGearFailureMask | kLampFailureMask)) != 0U) {
+        return DEVICES_API_DEVICE_STATUS_FAILURE;
+    }
+
+    if ((value & kLampOnMask) != 0U) {
+        return DEVICES_API_DEVICE_STATUS_ON;
+    }
+
+    return DEVICES_API_DEVICE_STATUS_OFF;
+}
+
+void update_status_matches(const devices_api_device_match_t *matches,
+                           size_t match_count,
+                           devices_api_device_status_t status)
+{
+    for (size_t i = 0; i < match_count; ++i) {
+        const esp_err_t err = devices_api_update_device_status(matches[i].address, status);
+        if (err != ESP_OK) {
+            ESP_LOGW(kTag,
+                     "Failed to update status for device %u: %s",
+                     static_cast<unsigned>(matches[i].address),
+                     esp_err_to_name(err));
+        }
+    }
+}
+
 void remember_query_actual_level_target(const dali_frame_description_t &description)
 {
     size_t match_count = 0;
@@ -272,6 +320,20 @@ void remember_query_actual_level_target(const dali_frame_description_t &descript
     }
 
     record_pending_reply(pending_reply_kind_t::Brightness, matches, match_count);
+}
+
+void remember_query_status_target(const dali_frame_description_t &description)
+{
+    size_t match_count = 0;
+    devices_api_device_match_t matches[kMaxDeviceMatches] = {};
+    const esp_err_t err = find_devices_for_description(description, matches, kMaxDeviceMatches, &match_count);
+    if (err != ESP_OK) {
+        ESP_LOGW(kTag, "Failed to resolve QUERY_STATUS target: %s", esp_err_to_name(err));
+        clear_pending_reply();
+        return;
+    }
+
+    record_pending_reply(pending_reply_kind_t::Status, matches, match_count);
 }
 
 void remember_dt8_query_colour_value_target(const dali_frame_description_t &description)
@@ -354,6 +416,12 @@ void publish_pending_reply(const dali_frame_event_t &frame)
     switch (s_pending_reply.kind) {
     case pending_reply_kind_t::Brightness:
         publish_brightness_matches(s_pending_reply.matches, s_pending_reply.match_count, value);
+        clear_pending_reply();
+        return;
+    case pending_reply_kind_t::Status:
+        update_status_matches(s_pending_reply.matches,
+                              s_pending_reply.match_count,
+                              status_from_query_status_reply(value));
         clear_pending_reply();
         return;
     case pending_reply_kind_t::ColorTemperatureHigh:
@@ -642,6 +710,11 @@ void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_fr
 
     if (description_command_is(description, "QUERY_ACTUAL_LEVEL")) {
         remember_query_actual_level_target(description);
+        return;
+    }
+
+    if (description_command_is(description, "QUERY_STATUS")) {
+        remember_query_status_target(description);
         return;
     }
 

@@ -31,6 +31,8 @@ typedef struct {
     // DALI short address: допустимый диапазон 0..63.
     uint8_t address;
 
+    devices_api_device_status_t status;
+
     // Возможности
     bool brightness;
     bool color_temperature;
@@ -45,7 +47,7 @@ typedef struct {
 // Защита от случайного изменения размера структуры. Если добавить поле,
 // сборка остановится, и формат NVS придется пересмотреть. Если формат поменялся,
 // старые записи NVS нужно очистить вручную перед использованием новой прошивки.
-static_assert(sizeof(device_record_t) == 8, "Unexpected device record size");
+static_assert(sizeof(device_record_t) == 10, "Unexpected device record size");
 
 void set_json_type(httpd_req_t *req)
 {
@@ -102,11 +104,28 @@ bool read_device(nvs_handle_t handle, uint8_t address, device_record_t *record)
     size_t blob_size = sizeof(*record);
 
     device_key(address, key, sizeof(key));
-    if (nvs_get_blob(handle, key, record, &blob_size) != ESP_OK || blob_size != sizeof(*record)) {
+    if (nvs_get_blob(handle, key, record, &blob_size) != ESP_OK ||
+        blob_size != sizeof(*record) ||
+        record->address != address ||
+        record->status > DEVICES_API_DEVICE_STATUS_FAILURE) {
         return false;
     }
 
-    return record->address == address;
+    return true;
+}
+
+const char *device_status_to_json(devices_api_device_status_t status)
+{
+    switch (status) {
+    case DEVICES_API_DEVICE_STATUS_ON:
+        return "on";
+    case DEVICES_API_DEVICE_STATUS_FAILURE:
+        return "failure";
+    case DEVICES_API_DEVICE_STATUS_OFF:
+        return "off";
+    }
+
+    return "off";
 }
 
 cJSON *array_from_mask(uint16_t mask)
@@ -144,6 +163,7 @@ cJSON *device_to_json(const device_record_t &record)
     scenes = array_from_mask(record.scenes_mask);
     if (groups == nullptr || scenes == nullptr ||
         cJSON_AddNumberToObject(device, "address", record.address) == nullptr ||
+        cJSON_AddStringToObject(device, "status", device_status_to_json(record.status)) == nullptr ||
         cJSON_AddBoolToObject(device, "brightness", record.brightness) == nullptr ||
         cJSON_AddBoolToObject(device, "colorTemperature", record.color_temperature) == nullptr ||
         cJSON_AddBoolToObject(device, "rgbw", record.rgbw) == nullptr) {
@@ -220,6 +240,7 @@ bool parse_device_json(cJSON *root, device_record_t *record)
     }
 
     record->address = static_cast<uint8_t>(address->valueint);
+    record->status = DEVICES_API_DEVICE_STATUS_OFF;
     record->brightness = brightness;
     record->color_temperature = color_temperature;
     record->rgbw = rgbw;
@@ -473,6 +494,7 @@ esp_err_t devices_api_put_handler(httpd_req_t *req)
         nvs_close(handle);
         return send_json_error(req, "404 Not Found", "Device not found");
     }
+    record.status = existing.status;
 
     char key[8] = {};
     device_key(uri_address, key, sizeof(key));
@@ -552,6 +574,7 @@ esp_err_t devices_api_delete_handler(httpd_req_t *req)
 }
 
 enum class DeviceCapability : uint8_t {
+    Any,
     Brightness,
     ColorTemperature,
     Rgbw,
@@ -560,6 +583,8 @@ enum class DeviceCapability : uint8_t {
 static bool device_has_capability(const device_record_t &record, DeviceCapability capability)
 {
     switch (capability) {
+    case DeviceCapability::Any:
+        return true;
     case DeviceCapability::Brightness:
         return record.brightness;
     case DeviceCapability::ColorTemperature:
@@ -623,6 +648,61 @@ static esp_err_t find_devices_by_capability(const char *address_kind,
 
     nvs_close(handle);
     return ESP_OK;
+}
+
+esp_err_t devices_api_update_device_status(uint8_t address, devices_api_device_status_t status)
+{
+    if (address > 63 || status > DEVICES_API_DEVICE_STATUS_FAILURE) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open(kDevicesNamespace, NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        return err == ESP_ERR_NVS_NOT_FOUND ? ESP_ERR_NOT_FOUND : err;
+    }
+
+    device_record_t record = {};
+    if (!read_device(handle, address, &record)) {
+        nvs_close(handle);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    if (record.status == status) {
+        nvs_close(handle);
+        return ESP_OK;
+    }
+
+    record.status = status;
+
+    char key[8] = {};
+    device_key(address, key, sizeof(key));
+    err = nvs_set_blob(handle, key, &record, sizeof(record));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+    return err;
+}
+
+esp_err_t devices_api_find_devices(const char *address_kind,
+                                   bool has_address_value,
+                                   int address_value,
+                                   bool require_scene,
+                                   uint8_t scene,
+                                   devices_api_device_match_t *matches,
+                                   size_t max_matches,
+                                   size_t *match_count)
+{
+    return find_devices_by_capability(address_kind,
+                                      has_address_value,
+                                      address_value,
+                                      require_scene,
+                                      scene,
+                                      DeviceCapability::Any,
+                                      matches,
+                                      max_matches,
+                                      match_count);
 }
 
 esp_err_t devices_api_find_brightness_devices(const char *address_kind,

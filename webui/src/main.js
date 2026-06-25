@@ -350,9 +350,18 @@ function numberList(values) {
   return Array.isArray(values) && values.length > 0 ? values.join(', ') : 'none';
 }
 
-function createLampIcon() {
+function normalizedDeviceStatus(device) {
+  return ['on', 'off', 'failure'].includes(device.status) ? device.status : 'off';
+}
+
+function deviceStatusLabel(device) {
+  const status = normalizedDeviceStatus(device);
+  return status === 'failure' ? 'Failure' : status === 'on' ? 'On' : 'Off';
+}
+
+function createLampIcon(status) {
   const icon = document.createElement('div');
-  icon.className = 'device-icon';
+  icon.className = `device-icon status-${status}`;
   icon.innerHTML = [
     '<svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">',
     '<path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 18h6m-5 3h4m-7-7a7 7 0 1 1 10 0c-.93.87-1.5 1.96-1.5 3.25h-7C8.5 15.96 7.93 14.87 7 14Z"/>',
@@ -370,6 +379,7 @@ function renderDeviceCard(device) {
   const editButton = document.createElement('button');
   const deleteButton = document.createElement('button');
   const capabilities = capabilityLabels(device);
+  const status = normalizedDeviceStatus(device);
 
   card.className = 'device-card';
   header.className = 'device-card-header';
@@ -390,9 +400,10 @@ function renderDeviceCard(device) {
   });
   actions.append(editButton, deleteButton);
 
-  header.append(createLampIcon(), title);
+  header.append(createLampIcon(status), title);
 
   const rows = [
+    ['Status', deviceStatusLabel(device)],
     ['Capabilities', capabilities.length > 0 ? capabilities.join(', ') : 'none selected'],
     ['Groups', numberList(device.groups)],
     ['Scenes', numberList(device.scenes)]

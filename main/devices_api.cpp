@@ -650,7 +650,9 @@ static esp_err_t find_devices_by_capability(const char *address_kind,
     return ESP_OK;
 }
 
-esp_err_t devices_api_update_device_status(uint8_t address, devices_api_device_status_t status)
+esp_err_t devices_api_update_device_status(uint8_t address,
+                                           devices_api_device_status_t status,
+                                           devices_api_device_status_t *previous_status)
 {
     if (address > 63 || status > DEVICES_API_DEVICE_STATUS_FAILURE) {
         return ESP_ERR_INVALID_ARG;
@@ -666,6 +668,10 @@ esp_err_t devices_api_update_device_status(uint8_t address, devices_api_device_s
     if (!read_device(handle, address, &record)) {
         nvs_close(handle);
         return ESP_ERR_NOT_FOUND;
+    }
+
+    if (previous_status != nullptr) {
+        *previous_status = record.status;
     }
 
     if (record.status == status) {

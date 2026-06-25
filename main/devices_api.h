@@ -20,7 +20,9 @@ esp_err_t devices_api_get_handler(httpd_req_t *req);
 esp_err_t devices_api_post_handler(httpd_req_t *req);
 esp_err_t devices_api_put_handler(httpd_req_t *req);
 esp_err_t devices_api_delete_handler(httpd_req_t *req);
-esp_err_t devices_api_update_device_status(uint8_t address, devices_api_device_status_t status);
+esp_err_t devices_api_update_device_status(uint8_t address,
+                                           devices_api_device_status_t status,
+                                           devices_api_device_status_t *previous_status);
 esp_err_t devices_api_find_devices(const char *address_kind,
                                    bool has_address_value,
                                    int address_value,

@@ -331,7 +331,7 @@ static void publish_device_state_number(uint8_t address, const char *state_name,
     }
 
     std::snprintf(payload, sizeof(payload), "%u", value);
-    esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 0);
+    esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
 }
 
 void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level)

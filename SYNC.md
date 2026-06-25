@@ -38,6 +38,8 @@
 - `device/<address>/blue`: raw DALI канал blue `0..254`
 - `device/<address>/white`: raw DALI канал white `0..254`
 
+Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новый подписчик сразу получил последнее известное состояние.
+
 ## ArcPower / DAPC (яркость)
 
 `ArcPower(<address>, level)` и `DAPC` уже содержат целевой адрес и уровень яркости `0..254`, поэтому параметр публикуется сразу.

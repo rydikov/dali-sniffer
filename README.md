@@ -1,8 +1,95 @@
-# Dali sniffer
+# Fast Dali
 
-Этот проект превращает `ESP32` в DALI sniffer и WebSocket-консоль для локальной сети.
+Этот проект позволяет с помощью `ESP32` и существующей DALI сети сделать интеграцию с Home Assistant.
 
-## Поддерживаемая платформа
+## Как это работает
+
+ESP32 мониторит DALI-трафик и публикует состояние (brightness, color_temperature, rgb) устройств в MQTT.
+Также при публикации значения в определенной топик с постфиксом `_set` – отправляется команда в шину DALI.
+
+Это позволяет использовать следующие MQTT шаблоны HA для управления:
+
+```yaml
+- unique_id: dali_device_0
+  name: "DALI: Устрйство 0"
+  schema: basic
+  command_topic: "dali/A/device/0/brightness_set"
+  # Если указать тип brightness, то всегда будет уходить 100, указываем firts
+  on_command_type: first
+  brightness_command_topic: "dali/A/device/0/brightness_set"
+  brightness_state_topic: "dali/A/device/0/brightness"
+  brightness_scale: 254
+  brightness_value_template: >
+    {{ value | int(0) }}
+  state_topic: "dali/A/device/0/brightness"
+  # Здесь указываются значения payload чтобы правильно определялось состояние on/off
+  state_value_template: >
+    {{ '50' if value | float(0) > 0 else '0' }}
+  payload_off: "0"
+  payload_on: "50"
+  color_temp_command_topic: "dali/A/device/0/color_temperature_set"
+  color_temp_state_topic: "dali/A/device/0/color_temperature"
+  color_temp_kelvin: true
+  min_kelvin: 2700
+  max_kelvin: 6500
+  optimistic: false
+  retain: false
+```
+
+Для того чтобы это работало – необходимо добавить отслеживаемые устройства во вкладке Devices.
+И указать параметры, которые будут отслеживаться.
+
+Как бонус – есть интерфейс чата, в котором отображаются все команды с шины. В нём можно:
+
+* видеть декодированные DALI-команды и ответы;
+* отправлять обычные DALI-команды вроде `lamp 1 -> off` или `group 2 -> query groups`;
+* управлять DT8-параметрами, например цветовой температурой и RGB, если подключённые control gear это поддерживают.
+
+
+Для интеграции с Home Assistant предназначены MQTT топики, которые инициируют посылку DALI команд устройствам и группам:
+
+* `dali/<custom_id>/device/<address>/brightness_set` - payload `0..254`;
+* `dali/<custom_id>/group/<address>/color_temperature_set` - payload Kelvin `2700..6500`;
+* `dali/<custom_id>/device/<address>/rgb_set` - payload `r,g,b`, значения `0..255`;
+* `dali/<custom_id>/group/<address>/white_set` - payload `w,a,f`, значения `0..255`.
+
+Примеры:
+
+```text
+dali/A/device/1/brightness_set payload 128
+dali/A/group/2/color_temperature_set payload 4000
+dali/A/device/5/rgb_set payload 255,120,0
+dali/A/group/3/white_set payload 255,0,0
+```
+
+Для `device` адрес должен быть `0..63`, для `group` - `0..15`. Retained сообщения в `_set` topics игнорируются, чтобы после reconnect не повторять старые команды.
+
+## Синхронизация состояний
+
+Прошивка умеет сопоставлять DALI-трафик с устройствами, сохранёнными на странице `/devices`, и публиковать их состояние в MQTT. Состояние фиксируется только для сохранённых устройств и только для включённых capability-чекбоксов.
+
+Основные state topics:
+
+* `device/<address>/brightness` - raw DALI яркость `0..254`;
+* `device/<address>/color_temperature` - цветовая температура в Kelvin;
+* `device/<address>/rgb` - raw DT8 RGB-каналы строкой `r,g,b`;
+* `device/<address>/white` - raw DT8 white-канал `0..254`.
+
+Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новые подписчики сразу получали последнее известное состояние.
+
+Команды с явным значением, например `DAPC` / `ArcPower`, публикуют яркость сразу. Если публикуется яркость больше `0`, сохранённое поле устройства `status` становится `on`; если публикуется `0`, `status` становится `off`.
+
+`QUERY_STATUS` обновляет поле `status` по backward reply:
+
+* `0x00` -> `off`;
+* `0x04` -> `on`;
+* любой другой ответ -> `failure`.
+
+Если устройство переходит из любого не-`on` состояния в `on`, прошивка дополнительно отправляет `QUERY_ACTUAL_LEVEL`, а ответ обрабатывается общей логикой яркости.
+
+Подробное описание синхронизации находится в [SYNC.md](SYNC.md).
+
+## Поддерживаемая платформа ESP32
 
 Разработка велась на `ESP32-S3` но должно работать и на `ESP32-C6`.
 
@@ -15,27 +102,6 @@
 
 Интерфейс Web приложения:
 ![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)
-
-После старта прошивка:
-
-* подключается к Wi‑Fi;
-* поднимает встроенный HTTP/WebSocket сервер;
-* прослушивает DALI-шину и декодирует кадры;
-* публикует события шины в чат браузера;
-* принимает текстовые команды из UI и отправляет их обратно в DALI-шину.
-
-Проект удобен в двух сценариях:
-
-* пассивный мониторинг шины: смотреть, какие команды и ответы реально ходят между контроллером и устройствами;
-* активное управление: отправлять команды на `lamp`, `group` или DT8-совместимые устройства прямо из строки чата в браузере;
-* отправка raw команды, которую не поддерживает ваш контроллер.
-
-В интерфейсе браузера можно:
-
-* видеть декодированные DALI-команды и ответы;
-* отправлять обычные DALI-команды вроде `lamp 1 -> off` или `group 2 -> query groups`;
-* задавать уровень яркости через проценты;
-* управлять DT8-параметрами, например цветовой температурой и RGB, если подключённые control gear это поддерживают.
 
 
 ## Сборка и запуск
@@ -305,49 +371,6 @@ Payload должен быть JSON:
 * `lamp 1 -> ct 4000K`
 
 Если JSON битый, поле `command` отсутствует или очередь MQTT-команд переполнена, прошивка не отправляет кадр в шину и публикует `command_request`/`command_result` с `accepted: false`.
-
-Также доступны короткие set-топики для управления устройствами и группами без JSON:
-
-* `dali/<custom_id>/device/<address>/brightness_set` - payload `0..254`;
-* `dali/<custom_id>/group/<address>/color_temperature_set` - payload Kelvin `2700..6500`;
-* `dali/<custom_id>/device/<address>/rgb_set` - payload `r,g,b`, значения `0..255`;
-* `dali/<custom_id>/group/<address>/white_set` - payload `w,a,f`, значения `0..255`.
-
-Примеры:
-
-```text
-dali/A/device/1/brightness_set payload 128
-dali/A/group/2/color_temperature_set payload 4000
-dali/A/device/5/rgb_set payload 255,120,0
-dali/A/group/3/white_set payload 255,0,0
-```
-
-Для `device` адрес должен быть `0..63`, для `group` - `0..15`. Retained сообщения в `_set` topics игнорируются, чтобы после reconnect не повторять старые команды. Подробности по state topics, retain и DALI mapping описаны в [SYNC.md](SYNC.md).
-
-## Синхронизация состояний
-
-Прошивка умеет сопоставлять DALI-трафик с устройствами, сохранёнными на странице `/devices`, и публиковать их состояние в MQTT. Состояние фиксируется только для сохранённых устройств и только для включённых capability-чекбоксов.
-
-Основные state topics:
-
-* `device/<address>/brightness` - raw DALI яркость `0..254`;
-* `device/<address>/color_temperature` - цветовая температура в Kelvin;
-* `device/<address>/rgb` - raw DT8 RGB-каналы строкой `r,g,b`;
-* `device/<address>/white` - raw DT8 white-канал `0..254`.
-
-Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новые подписчики сразу получали последнее известное состояние.
-
-Команды с явным значением, например `DAPC` / `ArcPower`, публикуют яркость сразу. Если публикуется яркость больше `0`, сохранённое поле устройства `status` становится `on`; если публикуется `0`, `status` становится `off`.
-
-`QUERY_STATUS` обновляет поле `status` по backward reply:
-
-* `0x00` -> `off`;
-* `0x04` -> `on`;
-* любой другой ответ -> `failure`.
-
-Если устройство переходит из любого не-`on` состояния в `on`, прошивка дополнительно отправляет `QUERY_ACTUAL_LEVEL`, а ответ обрабатывается общей логикой яркости.
-
-Подробное описание правил, фильтрации и DT8-потоков находится в [SYNC.md](SYNC.md).
 
 ## Разработка фронтенда и запуск его локально
 

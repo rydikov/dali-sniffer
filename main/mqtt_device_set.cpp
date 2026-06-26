@@ -181,6 +181,25 @@ bool append_dt8_temporary_waf(mqtt_device_set_command_t *command,
            append_frame(command, address_byte, 0xEC);
 }
 
+bool append_dt8_temporary_rgb(mqtt_device_set_command_t *command,
+                              uint8_t address_byte,
+                              uint8_t red,
+                              uint8_t green,
+                              uint8_t blue)
+{
+    // Такой порядок повторяет последовательность внешнего DALI-контроллера:
+    //   DTR0 = R
+    //   DTR1 = G
+    //   DTR2 = B
+    //   ENABLE DT8
+    //   target -> DT8_SET_TEMPORARY_RGB_DIMLEVEL (0xEB)
+    return append_frame(command, 0xA3, red) &&
+           append_frame(command, 0xC3, green) &&
+           append_frame(command, 0xC5, blue) &&
+           append_dt8_enable(command) &&
+           append_frame(command, address_byte, 0xEB);
+}
+
 bool topic_prefix_matches(const char *topic, const char *root_topic, const char *prefix, const char **rest)
 {
     const size_t root_len = std::strlen(root_topic);
@@ -269,9 +288,8 @@ void build_text_command(const parsed_topic_t &topic,
                         unsigned third,
                         mqtt_device_set_command_t *command)
 {
-    // Для color_temperature_set и rgb_set переиспользуем существующий текстовый
-    // DALI parser. Так DT8 Tc/RGB остаются в одном месте, включая mired-конверсию
-    // и DT8_ACTIVATE после RGB.
+    // Для color_temperature_set переиспользуем существующий текстовый DALI
+    // parser. Так mired-конверсия DT8 Tc остаётся в одном месте.
     command->kind = mqtt_device_set_command_kind_t::Text;
     std::snprintf(command->command_text,
                   sizeof(command->command_text),
@@ -292,6 +310,24 @@ void build_text_command(const parsed_topic_t &topic,
                       second,
                       third);
     }
+}
+
+bool build_rgb_command(const parsed_topic_t &topic, const uint8_t *values, mqtt_device_set_command_t *command)
+{
+    const uint8_t address_byte = command_address_byte(topic.kind, topic.address, true);
+    command->kind = mqtt_device_set_command_kind_t::Frames;
+    std::snprintf(command->command_text,
+                  sizeof(command->command_text),
+                  "%s %u rgb_set %u,%u,%u",
+                  topic.kind == target_kind_t::Group ? "group" : "device",
+                  static_cast<unsigned>(topic.address),
+                  static_cast<unsigned>(values[0]),
+                  static_cast<unsigned>(values[1]),
+                  static_cast<unsigned>(values[2]));
+
+    return append_dt8_temporary_rgb(command, address_byte, values[0], values[1], values[2]) &&
+           append_dt8_enable(command) &&
+           append_frame(command, address_byte, 0xE2);
 }
 
 bool build_white_command(const parsed_topic_t &topic, const uint8_t *values, mqtt_device_set_command_t *command)
@@ -417,12 +453,10 @@ void mqtt_device_set_build_command(const char *root_topic,
             return;
         }
 
-        build_text_command(parsed,
-                           "rgb %u %u %u",
-                           values[0],
-                           values[1],
-                           values[2],
-                           &result->command);
+        if (!build_rgb_command(parsed, values, &result->command)) {
+            set_invalid(result, "Failed to build rgb_set command");
+            return;
+        }
         result->status = mqtt_device_set_status_t::Ready;
         return;
     }

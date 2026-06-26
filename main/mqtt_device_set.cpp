@@ -202,9 +202,16 @@ bool append_dt8_temporary_rgb(mqtt_device_set_command_t *command,
 
 bool topic_prefix_matches(const char *topic, const char *root_topic, const char *prefix, const char **rest)
 {
+    if (topic == nullptr || root_topic == nullptr || prefix == nullptr || rest == nullptr) {
+        return false;
+    }
+
+    const size_t topic_len = std::strlen(topic);
     const size_t root_len = std::strlen(root_topic);
     const size_t prefix_len = std::strlen(prefix);
-    if (std::strncmp(topic, root_topic, root_len) != 0 ||
+
+    if (topic_len < root_len + prefix_len ||
+        std::strncmp(topic, root_topic, root_len) != 0 ||
         std::strncmp(topic + root_len, prefix, prefix_len) != 0) {
         return false;
     }

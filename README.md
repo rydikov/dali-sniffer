@@ -306,6 +306,24 @@ Payload должен быть JSON:
 
 Если JSON битый, поле `command` отсутствует или очередь MQTT-команд переполнена, прошивка не отправляет кадр в шину и публикует `command_request`/`command_result` с `accepted: false`.
 
+Также доступны короткие set-топики для управления устройствами и группами без JSON:
+
+* `dali/<custom_id>/device/<address>/brightness_set` - payload `0..254`;
+* `dali/<custom_id>/group/<address>/color_temperature_set` - payload Kelvin `1000..65535`;
+* `dali/<custom_id>/device/<address>/rgb_set` - payload `r,g,b`, значения `0..255`;
+* `dali/<custom_id>/group/<address>/white_set` - payload `w,a,f`, значения `0..255`.
+
+Примеры:
+
+```text
+dali/A/device/1/brightness_set payload 128
+dali/A/group/2/color_temperature_set payload 4000
+dali/A/device/5/rgb_set payload 255,120,0
+dali/A/group/3/white_set payload 255,0,0
+```
+
+Для `device` адрес должен быть `0..63`, для `group` - `0..15`. Retained сообщения в `_set` topics игнорируются, чтобы после reconnect не повторять старые команды. Подробности по state topics, retain и DALI mapping описаны в [SYNC.md](SYNC.md).
+
 ## Синхронизация состояний
 
 Прошивка умеет сопоставлять DALI-трафик с устройствами, сохранёнными на странице `/devices`, и публиковать их состояние в MQTT. Состояние фиксируется только для сохранённых устройств и только для включённых capability-чекбоксов.

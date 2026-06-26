@@ -20,6 +20,8 @@ extern "C" {
 #include "freertos/queue.h"
 #include "freertos/task.h"
 
+#include "mqtt_device_set.h"
+
 namespace {
 
 constexpr const char *kTag = "mqtt_bridge";
@@ -29,7 +31,10 @@ constexpr size_t kCommandTextSize = 128;
 constexpr size_t kQueueSize = 8;
 
 struct mqtt_command_job_t {
+    mqtt_device_set_command_kind_t kind;
     char command[kCommandTextSize];
+    size_t frame_count;
+    dali_tx_frame_t frames[kMaxDaliTxFrames];
 };
 
 esp_mqtt_client_handle_t s_client = nullptr;
@@ -41,6 +46,8 @@ char s_status_topic[kTopicBufferSize] = {};
 char s_command_request_topic[kTopicBufferSize] = {};
 char s_command_result_topic[kTopicBufferSize] = {};
 char s_command_execute_topic[kTopicBufferSize] = {};
+char s_device_set_topic[kTopicBufferSize] = {};
+char s_group_set_topic[kTopicBufferSize] = {};
 char s_broker_uri[kBrokerUriSize] = {};
 
 bool set_topic(char *buffer, size_t buffer_size, const char *suffix)
@@ -67,7 +74,9 @@ bool build_topics()
     return set_topic(s_status_topic, sizeof(s_status_topic), "/status") &&
            set_topic(s_command_request_topic, sizeof(s_command_request_topic), "/event/command/request") &&
            set_topic(s_command_result_topic, sizeof(s_command_result_topic), "/event/command/result") &&
-           set_topic(s_command_execute_topic, sizeof(s_command_execute_topic), "/command/execute");
+           set_topic(s_command_execute_topic, sizeof(s_command_execute_topic), "/command/execute") &&
+           set_topic(s_device_set_topic, sizeof(s_device_set_topic), "/device/+/+") &&
+           set_topic(s_group_set_topic, sizeof(s_group_set_topic), "/group/+/+");
 }
 
 bool publish_json(const char *topic, cJSON *root)
@@ -115,9 +124,36 @@ void command_executor_task(void *arg)
         }
 
         dali_command_exec_result_t result = {};
-        dali_execute_command_text(job.command, &result);
+        if (job.kind == mqtt_device_set_command_kind_t::Frames) {
+            result.accepted = job.frame_count > 0;
+            result.frame_count = job.frame_count;
+            const esp_err_t send_err = result.accepted ? dali_sniffer_send_frames(job.frames, job.frame_count)
+                                                       : ESP_ERR_INVALID_ARG;
+            result.sent = send_err == ESP_OK;
+            if (send_err == ESP_OK) {
+                std::snprintf(result.feedback, sizeof(result.feedback), "Sent: %s", job.command);
+            } else {
+                std::snprintf(result.feedback,
+                              sizeof(result.feedback),
+                              "Failed to send DALI command \"%s\": %s",
+                              job.command,
+                              esp_err_to_name(send_err));
+            }
+        } else {
+            dali_execute_command_text(job.command, &result);
+        }
         mqtt_bridge_publish_command_result("mqtt", job.command, result);
     }
+}
+
+void enqueue_mqtt_command(const mqtt_command_job_t &job)
+{
+    if (xQueueSend(s_command_queue, &job, 0) != pdTRUE) {
+        publish_invalid_mqtt_command(job.command, "MQTT command queue is full");
+        return;
+    }
+
+    mqtt_bridge_publish_command_request("mqtt", job.command, true);
 }
 
 void handle_mqtt_command_payload(const char *payload, int payload_len)
@@ -140,13 +176,45 @@ void handle_mqtt_command_payload(const char *payload, int payload_len)
     cJSON_Delete(root);
 
     mqtt_command_job_t job = {};
+    job.kind = mqtt_device_set_command_kind_t::Text;
     std::snprintf(job.command, sizeof(job.command), "%s", command_text);
-    if (xQueueSend(s_command_queue, &job, 0) != pdTRUE) {
-        publish_invalid_mqtt_command(command_text, "MQTT command queue is full");
+    enqueue_mqtt_command(job);
+}
+
+void handle_device_set_message(esp_mqtt_event_handle_t event)
+{
+    if (event == nullptr || event->current_data_offset != 0 || event->data_len != event->total_data_len) {
         return;
     }
 
-    mqtt_bridge_publish_command_request("mqtt", command_text, true);
+    mqtt_device_set_result_t result = {};
+    mqtt_device_set_build_command(s_root_topic,
+                                  event->topic,
+                                  event->topic_len,
+                                  event->data,
+                                  event->data_len,
+                                  event->retain,
+                                  &result);
+
+    switch (result.status) {
+    case mqtt_device_set_status_t::NotMatched:
+    case mqtt_device_set_status_t::IgnoredRetained:
+        return;
+    case mqtt_device_set_status_t::Invalid:
+        publish_invalid_mqtt_command(result.command.command_text, result.error);
+        return;
+    case mqtt_device_set_status_t::Ready: {
+        mqtt_command_job_t job = {};
+        job.kind = result.command.kind;
+        std::snprintf(job.command, sizeof(job.command), "%s", result.command.command_text);
+        job.frame_count = result.command.frame_count;
+        if (job.frame_count > 0) {
+            std::memcpy(job.frames, result.command.frames, sizeof(job.frames[0]) * job.frame_count);
+        }
+        enqueue_mqtt_command(job);
+        return;
+    }
+    }
 }
 
 void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
@@ -158,8 +226,14 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
     switch (static_cast<esp_mqtt_event_id_t>(event_id)) {
     case MQTT_EVENT_CONNECTED:
         s_connected = true;
-        ESP_LOGI(kTag, "Connected to broker, subscribing to %s", s_command_execute_topic);
+        ESP_LOGI(kTag,
+                 "Connected to broker, subscribing to %s, %s and %s",
+                 s_command_execute_topic,
+                 s_device_set_topic,
+                 s_group_set_topic);
         esp_mqtt_client_subscribe(s_client, s_command_execute_topic, 0);
+        esp_mqtt_client_subscribe(s_client, s_device_set_topic, 0);
+        esp_mqtt_client_subscribe(s_client, s_group_set_topic, 0);
         mqtt_bridge_publish_status();
         break;
     case MQTT_EVENT_DISCONNECTED:
@@ -174,6 +248,8 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
                 break;
             }
             handle_mqtt_command_payload(event->data, event->data_len);
+        } else {
+            handle_device_set_message(event);
         }
         break;
     default:

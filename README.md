@@ -309,7 +309,7 @@ Payload должен быть JSON:
 Также доступны короткие set-топики для управления устройствами и группами без JSON:
 
 * `dali/<custom_id>/device/<address>/brightness_set` - payload `0..254`;
-* `dali/<custom_id>/group/<address>/color_temperature_set` - payload Kelvin `1000..65535`;
+* `dali/<custom_id>/group/<address>/color_temperature_set` - payload Kelvin `2700..6500`;
 * `dali/<custom_id>/device/<address>/rgb_set` - payload `r,g,b`, значения `0..255`;
 * `dali/<custom_id>/group/<address>/white_set` - payload `w,a,f`, значения `0..255`.
 

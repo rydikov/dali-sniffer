@@ -436,8 +436,8 @@ void mqtt_device_set_build_command(const char *root_topic,
 
     if (std::strcmp(parsed.state, "color_temperature_set") == 0) {
         unsigned kelvin = 0;
-        if (!parse_uint_range(value_text, 1000, 65535, &kelvin)) {
-            set_invalid(result, "color_temperature_set payload must be Kelvin 1000..65535");
+        if (!parse_uint_range(value_text, 2700, 6500, &kelvin)) {
+            set_invalid(result, "color_temperature_set payload must be Kelvin 2700..6500");
             return;
         }
 

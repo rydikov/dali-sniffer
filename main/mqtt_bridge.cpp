@@ -410,6 +410,30 @@ static void publish_device_state_number(uint8_t address, const char *state_name,
     esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
 }
 
+static void publish_device_state_text(uint8_t address, const char *state_name, const char *payload)
+{
+    if (!s_enabled || !s_connected || s_client == nullptr || address > 63 || state_name == nullptr || payload == nullptr) {
+        return;
+    }
+
+    char topic[kTopicBufferSize] = {};
+    const int topic_length = std::snprintf(topic,
+                                           sizeof(topic),
+                                           "%s/device/%u/%s",
+                                           s_root_topic,
+                                           static_cast<unsigned>(address),
+                                           state_name);
+    if (topic_length < 0 || static_cast<size_t>(topic_length) >= sizeof(topic)) {
+        ESP_LOGW(kTag,
+                 "Device state topic is too long for device %u state %s",
+                 static_cast<unsigned>(address),
+                 state_name);
+        return;
+    }
+
+    esp_mqtt_client_publish(s_client, topic, payload, 0, 0, 1);
+}
+
 void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level)
 {
     publish_device_state_number(address, "brightness", static_cast<unsigned>(level));
@@ -420,19 +444,16 @@ void mqtt_bridge_publish_device_color_temperature(uint8_t address, uint32_t kelv
     publish_device_state_number(address, "color_temperature", static_cast<unsigned>(kelvin));
 }
 
-void mqtt_bridge_publish_device_red(uint8_t address, uint8_t level)
+void mqtt_bridge_publish_device_rgb(uint8_t address, uint8_t red, uint8_t green, uint8_t blue)
 {
-    publish_device_state_number(address, "red", static_cast<unsigned>(level));
-}
-
-void mqtt_bridge_publish_device_green(uint8_t address, uint8_t level)
-{
-    publish_device_state_number(address, "green", static_cast<unsigned>(level));
-}
-
-void mqtt_bridge_publish_device_blue(uint8_t address, uint8_t level)
-{
-    publish_device_state_number(address, "blue", static_cast<unsigned>(level));
+    char payload[12] = {};
+    std::snprintf(payload,
+                  sizeof(payload),
+                  "%u,%u,%u",
+                  static_cast<unsigned>(red),
+                  static_cast<unsigned>(green),
+                  static_cast<unsigned>(blue));
+    publish_device_state_text(address, "rgb", payload);
 }
 
 void mqtt_bridge_publish_device_white(uint8_t address, uint8_t level)

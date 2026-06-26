@@ -332,7 +332,8 @@ dali/A/group/3/white_set payload 255,0,0
 
 * `device/<address>/brightness` - raw DALI яркость `0..254`;
 * `device/<address>/color_temperature` - цветовая температура в Kelvin;
-* `device/<address>/red`, `green`, `blue`, `white` - raw DT8 RGBW-каналы `0..254`.
+* `device/<address>/rgb` - raw DT8 RGB-каналы строкой `r,g,b`;
+* `device/<address>/white` - raw DT8 white-канал `0..254`.
 
 Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новые подписчики сразу получали последнее известное состояние.
 

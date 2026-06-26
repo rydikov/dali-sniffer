@@ -77,6 +77,7 @@ bool description_command_is(const dali_frame_description_t &description, const c
 
 uint32_t kelvin_from_mired(uint16_t mired);
 void query_turned_on_device_state(const devices_api_device_match_t *matches, size_t match_count);
+bool description_has_addressed_target(const dali_frame_description_t &description);
 
 bool description_is_dt8_query_colour_value(const dali_frame_description_t &description)
 {
@@ -87,7 +88,11 @@ bool description_is_dt8_query_colour_value(const dali_frame_description_t &descr
     // Некоторые внешние DALI-декодеры показывают QueryColourValue на opcode
     // 0xFA. Оставляем эту ветку, чтобы корректно привязать реальные ответы
     // из шины даже если локальная таблица имён считает 0xFA другой командой.
-    return description.bit_length == 16 && (description.raw_value & 0xFFU) == 0xFAU;
+    // Но special-команда DTR0 тоже может иметь arg=0xFA (например 4000K -> mired
+    // 0x00FA), поэтому fallback применяем только к адресованным DALI-командам.
+    return description.bit_length == 16 &&
+           description_has_addressed_target(description) &&
+           (description.raw_value & 0xFFU) == 0xFAU;
 }
 
 bool description_has_addressed_target(const dali_frame_description_t &description)

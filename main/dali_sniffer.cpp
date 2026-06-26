@@ -12,9 +12,6 @@
 #include "freertos/task.h"
 #include "sdkconfig.h"
 
-#include "dali_protocol.h"
-#include "dali_state_sync.h"
-
 namespace {
 
 constexpr const char *kTag = "dali_sniffer";
@@ -563,11 +560,7 @@ public:
                     .data = frame_value,
                     .length = tx_frame.bit_length,
                     .is_backward_frame = false,
-                    .is_transmitted = true,
                 };
-                dali_frame_description_t description = {};
-                dali_describe_frame(sent_frame, &description);
-                dali_state_sync_handle_frame(sent_frame, description);
                 publish_frame_event(sent_frame);
                 return ESP_OK;
             }
@@ -655,7 +648,6 @@ private:
             dali_frame_event_t frame = {};
             frame.length = bit_length;
             frame.is_backward_frame = (bit_length == 8);
-            frame.is_transmitted = false;
 
             // Перекладываем декодированные байты в компактное представление события,
             // которое затем можно безопасно передавать между задачами.

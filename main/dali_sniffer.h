@@ -11,6 +11,7 @@ struct dali_frame_event_t {
     uint32_t data;
     uint8_t length;
     bool is_backward_frame;
+    bool is_transmitted;
 };
 
 struct dali_tx_frame_t {

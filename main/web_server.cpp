@@ -205,7 +205,9 @@ void broadcast_message(const dali_frame_event_t &frame)
     size_t clients = CONFIG_LWIP_MAX_SOCKETS;
 
     dali_describe_frame(frame, &description);
-    dali_state_sync_handle_frame(frame, description);
+    if (!frame.is_transmitted) {
+        dali_state_sync_handle_frame(frame, description);
+    }
 
     if (s_server == nullptr) {
         return;

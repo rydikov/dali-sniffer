@@ -45,6 +45,9 @@ ESP32 мониторит DALI-трафик и публикует состоян�
 * отправлять обычные DALI-команды вроде `lamp 1 -> off` или `group 2 -> query groups`;
 * управлять DT8-параметрами, например цветовой температурой и RGB, если подключённые control gear это поддерживают.
 
+Интерфейс чата:
+![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)
+
 
 Для интеграции с Home Assistant предназначены MQTT топики, которые инициируют посылку DALI команд устройствам и группам:
 
@@ -99,9 +102,6 @@ dali/A/group/3/white_set payload 255,0,0
 
 * На момент разработки плату Dali можно купить на OZON: https://ozon.ru/t/iNTS5aK
 * ESP32 желательно купить с посадочнми гнезами под плату Dali (S3 или C6): https://ali.click/jkle513
-
-Интерфейс Web приложения:
-![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)
 
 
 ## Сборка и запуск

@@ -43,13 +43,11 @@ ESP32 мониторит DALI-трафик и публикует изменяе�
 
 ## MQTT Интерфейс
 
-Все payload состояния устройств являются обычными десятичными числами.
+Payload состояния устройств обычно являются десятичными числами. Исключение - `rgb`, где три канала публикуются одной строкой через запятую.
 
 - `device/<address>/brightness`: raw DALI яркость `0..254`
 - `device/<address>/color_temperature`: Kelvin
-- `device/<address>/red`: raw DALI канал red `0..254`
-- `device/<address>/green`: raw DALI канал green `0..254`
-- `device/<address>/blue`: raw DALI канал blue `0..254`
+- `device/<address>/rgb`: raw DALI RGB каналы `r,g,b`, значения `0..254`
 - `device/<address>/white`: raw DALI канал white `0..254`
 
 Все `device/<address>/...` state topics публикуются с MQTT-флагом `retain`, чтобы новый подписчик сразу получил последнее известное состояние.

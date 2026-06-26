@@ -15,7 +15,5 @@ void mqtt_bridge_publish_command_result(const char *origin,
                                         const dali_command_exec_result_t &result);
 void mqtt_bridge_publish_device_brightness(uint8_t address, uint8_t level);
 void mqtt_bridge_publish_device_color_temperature(uint8_t address, uint32_t kelvin);
-void mqtt_bridge_publish_device_red(uint8_t address, uint8_t level);
-void mqtt_bridge_publish_device_green(uint8_t address, uint8_t level);
-void mqtt_bridge_publish_device_blue(uint8_t address, uint8_t level);
+void mqtt_bridge_publish_device_rgb(uint8_t address, uint8_t red, uint8_t green, uint8_t blue);
 void mqtt_bridge_publish_device_white(uint8_t address, uint8_t level);

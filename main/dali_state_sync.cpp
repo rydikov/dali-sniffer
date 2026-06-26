@@ -69,6 +69,8 @@ dt8_color_temperature_context_t s_dt8_color_temperature = {};
 dt8_temporary_rgbw_context_t s_dt8_temporary_rgbw = {};
 uint8_t s_dt8_query_colour_value_index = 0;
 bool s_has_dt8_query_colour_value_index = false;
+uint8_t s_last_rgb[64][3] = {};
+bool s_has_last_rgb[64] = {};
 
 bool description_command_is(const dali_frame_description_t &description, const char *command_name)
 {
@@ -77,6 +79,7 @@ bool description_command_is(const dali_frame_description_t &description, const c
 
 uint32_t kelvin_from_mired(uint16_t mired);
 void query_turned_on_device_state(const devices_api_device_match_t *matches, size_t match_count);
+bool description_has_addressed_target(const dali_frame_description_t &description);
 
 bool description_is_dt8_query_colour_value(const dali_frame_description_t &description)
 {
@@ -87,7 +90,11 @@ bool description_is_dt8_query_colour_value(const dali_frame_description_t &descr
     // Некоторые внешние DALI-декодеры показывают QueryColourValue на opcode
     // 0xFA. Оставляем эту ветку, чтобы корректно привязать реальные ответы
     // из шины даже если локальная таблица имён считает 0xFA другой командой.
-    return description.bit_length == 16 && (description.raw_value & 0xFFU) == 0xFAU;
+    // Но special-команда DTR0 тоже может иметь arg=0xFA (например 4000K -> mired
+    // 0x00FA), поэтому fallback применяем только к адресованным DALI-командам.
+    return description.bit_length == 16 &&
+           description_has_addressed_target(description) &&
+           (description.raw_value & 0xFFU) == 0xFAU;
 }
 
 bool description_has_addressed_target(const dali_frame_description_t &description)
@@ -242,26 +249,51 @@ void publish_brightness_matches(const devices_api_device_match_t *matches, size_
     }
 }
 
-void publish_rgbw_matches(const devices_api_device_match_t *matches,
-                          size_t match_count,
-                          rgbw_channel_t channel,
-                          uint8_t level)
+void publish_rgb_matches(const devices_api_device_match_t *matches,
+                         size_t match_count,
+                         uint8_t red,
+                         uint8_t green,
+                         uint8_t blue)
 {
     for (size_t i = 0; i < match_count; ++i) {
+        mqtt_bridge_publish_device_rgb(matches[i].address, red, green, blue);
+        s_last_rgb[matches[i].address][0] = red;
+        s_last_rgb[matches[i].address][1] = green;
+        s_last_rgb[matches[i].address][2] = blue;
+        s_has_last_rgb[matches[i].address] = true;
+    }
+}
+
+void publish_rgb_channel_matches(const devices_api_device_match_t *matches,
+                                 size_t match_count,
+                                 rgbw_channel_t channel,
+                                 uint8_t level)
+{
+    for (size_t i = 0; i < match_count; ++i) {
+        uint8_t red = s_has_last_rgb[matches[i].address] ? s_last_rgb[matches[i].address][0] : 0;
+        uint8_t green = s_has_last_rgb[matches[i].address] ? s_last_rgb[matches[i].address][1] : 0;
+        uint8_t blue = s_has_last_rgb[matches[i].address] ? s_last_rgb[matches[i].address][2] : 0;
+
         switch (channel) {
         case rgbw_channel_t::Red:
-            mqtt_bridge_publish_device_red(matches[i].address, level);
+            red = level;
             break;
         case rgbw_channel_t::Green:
-            mqtt_bridge_publish_device_green(matches[i].address, level);
+            green = level;
             break;
         case rgbw_channel_t::Blue:
-            mqtt_bridge_publish_device_blue(matches[i].address, level);
+            blue = level;
             break;
         case rgbw_channel_t::White:
             mqtt_bridge_publish_device_white(matches[i].address, level);
-            break;
+            continue;
         }
+
+        mqtt_bridge_publish_device_rgb(matches[i].address, red, green, blue);
+        s_last_rgb[matches[i].address][0] = red;
+        s_last_rgb[matches[i].address][1] = green;
+        s_last_rgb[matches[i].address][2] = blue;
+        s_has_last_rgb[matches[i].address] = true;
     }
 }
 
@@ -481,7 +513,7 @@ void publish_pending_reply(const dali_frame_event_t &frame)
         return;
     }
     case pending_reply_kind_t::RgbwChannel:
-        publish_rgbw_matches(s_pending_reply.matches, s_pending_reply.match_count, s_pending_reply.rgbw_channel, value);
+        publish_rgb_channel_matches(s_pending_reply.matches, s_pending_reply.match_count, s_pending_reply.rgbw_channel, value);
         clear_pending_reply();
         return;
     case pending_reply_kind_t::None:
@@ -671,25 +703,18 @@ void publish_dt8_temporary_rgbw()
     }
 
     if (s_dt8_temporary_rgbw.has_rgb) {
-        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
-                             s_dt8_temporary_rgbw.match_count,
-                             rgbw_channel_t::Red,
-                             s_dt8_temporary_rgbw.red);
-        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
-                             s_dt8_temporary_rgbw.match_count,
-                             rgbw_channel_t::Green,
-                             s_dt8_temporary_rgbw.green);
-        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
-                             s_dt8_temporary_rgbw.match_count,
-                             rgbw_channel_t::Blue,
-                             s_dt8_temporary_rgbw.blue);
+        publish_rgb_matches(s_dt8_temporary_rgbw.matches,
+                            s_dt8_temporary_rgbw.match_count,
+                            s_dt8_temporary_rgbw.red,
+                            s_dt8_temporary_rgbw.green,
+                            s_dt8_temporary_rgbw.blue);
     }
 
     if (s_dt8_temporary_rgbw.has_white) {
-        publish_rgbw_matches(s_dt8_temporary_rgbw.matches,
-                             s_dt8_temporary_rgbw.match_count,
-                             rgbw_channel_t::White,
-                             s_dt8_temporary_rgbw.white);
+        publish_rgb_channel_matches(s_dt8_temporary_rgbw.matches,
+                                    s_dt8_temporary_rgbw.match_count,
+                                    rgbw_channel_t::White,
+                                    s_dt8_temporary_rgbw.white);
     }
 
     clear_dt8_temporary_rgb();

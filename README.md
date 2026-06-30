@@ -7,6 +7,9 @@
 
 Особенностью является – быстрая обратная связь о состоянии устройств на шине.
 
+
+https://github.com/rydikov/fast-dali/blob/main/docs/demo.mp4
+
 ## Как это работает
 
 ESP32 мониторит DALI-трафик и публикует состояние (brightness, color_temperature, rgb) устройств в MQTT.
@@ -57,7 +60,7 @@ ESP32 мониторит DALI-трафик и публикует состоян�
 Для того чтобы это работало – необходимо добавить отслеживаемые устройства во вкладке Devices.
 И указать параметры, которые будут отслеживаться.
 
-Подробное описание синхронизации находится в [SYNC.md](docs/SYNC.md).
+Подробное описание синхронизации находится в [SYNC.md](docs/SYNC.md)
 
 ## Управление командами и мониторинг шины
 
@@ -68,7 +71,7 @@ ESP32 мониторит DALI-трафик и публикует состоян�
 * Управлять DT8-параметрами, например цветовой температурой и RGB, если устройства это поддерживают.
 
 Интерфейс чата:
-![Interface](https://github.com/rydikov/dali-sniffer/blob/develop/docs/interface.png)
+![Interface](https://github.com/rydikov/fast-dali/blob/main/docs/interface.png)
 
 
 ## Поддерживаемая платформа ESP32
@@ -77,7 +80,7 @@ ESP32 мониторит DALI-трафик и публикует состоян�
 
 Для работы с шиной DALI используется плата:
 
-![Board](https://github.com/rydikov/dali-sniffer/blob/develop/docs/dali_board.jpg)
+![Board](https://github.com/rydikov/fast-dali/blob/main/docs/dali_board.jpg)
 
 * На момент разработки плату Dali можно купить на OZON: https://ozon.ru/t/iNTS5aK
 * ESP32 желательно купить с посадочнми гнезами под плату Dali (S3 или C6): https://ali.click/jkle513
@@ -101,7 +104,7 @@ idf.py set-target esp32-s3
 idf.py menuconfig
 ```
 
-В разделе `WiFi Configuration` укажите параметры:
+В разделе `Sniffer Configuration` укажите параметры:
 
 * `Wi-Fi SSID` - имя беспроводной сети;
 * `Wi-Fi password` - пароль беспроводной сети;
@@ -153,7 +156,7 @@ idf.py -p PORT flash monitor
 <TARGET> -> <ACTION>
 ```
 
-Подробное описание команд находится в [COMMANDS.md](docs/COMMANDS.md).
+Подробное описание команд находится в [COMMANDS.md](docs/COMMANDS.md)
 
 ## Credits
 

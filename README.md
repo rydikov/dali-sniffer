@@ -7,8 +7,7 @@
 
 Особенностью является – быстрая обратная связь о состоянии устройств на шине.
 
-
-https://github.com/rydikov/fast-dali/blob/main/docs/demo.mp4
+https://github.com/rydikov/fast-dali/blame/63356f20f5af03346c4e7599d21a559b86dacec2/docs/demo.mp4
 
 ## Как это работает
 

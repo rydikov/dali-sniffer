@@ -783,6 +783,23 @@ void publish_target_color_temperature(const dali_frame_description_t &descriptio
 
 }  // namespace
 
+void dali_state_sync_expect_status_reply(uint8_t address)
+{
+    if (address > 63) {
+        clear_pending_reply();
+        return;
+    }
+
+    devices_api_device_match_t match = {};
+    match.address = address;
+    record_pending_reply(pending_reply_kind_t::Status, &match, 1);
+}
+
+void dali_state_sync_clear_expected_reply(void)
+{
+    clear_pending_reply();
+}
+
 void dali_state_sync_handle_frame(const dali_frame_event_t &frame, const dali_frame_description_t &description)
 {
     // Единая точка синхронизации DALI-трафика с MQTT state topics. WebSocket UI

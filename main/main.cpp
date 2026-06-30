@@ -16,6 +16,7 @@
 #include "sdkconfig.h"
 
 #include "dali_sniffer.h"
+#include "dali_status_heartbeat.h"
 #include "mqtt_bridge.h"
 #include "web_server.h"
 
@@ -128,6 +129,7 @@ extern "C" void app_main(void)
     wifi_config_t wifi_config = build_wifi_config();
     start_wifi_station(wifi_config);
     ESP_ERROR_CHECK(dali_sniffer_start());
+    ESP_ERROR_CHECK(dali_status_heartbeat_start());
     ESP_ERROR_CHECK(mqtt_bridge_start());
     ESP_ERROR_CHECK(web_server_start());
 }

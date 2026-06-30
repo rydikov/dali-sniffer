@@ -7,9 +7,6 @@
 
 Особенностью является – быстрая обратная связь о состоянии устройств на шине.
 
-
-https://github.com/rydikov/fast-dali/blob/main/docs/demo.mp4
-
 ## Как это работает
 
 ESP32 мониторит DALI-трафик и публикует состояние (brightness, color_temperature, rgb) устройств в MQTT.

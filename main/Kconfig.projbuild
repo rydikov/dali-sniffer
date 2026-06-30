@@ -38,4 +38,12 @@ menu "Sniffer Configuration"
         help
             GPIO pin number used for keeping the DALI transceiver output released.
 
+    config DALI_STATUS_HEARTBEAT_SECONDS
+        int "DALI status heartbeat interval"
+        default 0
+        range 0 86400
+        help
+            Interval in seconds for periodically sending QUERY_STATUS to all saved devices.
+            Set to 0 to disable periodic status polling.
+
 endmenu
